@@ -745,60 +745,344 @@ render_disclaimer()
 
 
 def render_portfolio_assistant() -> None:
-    st.title("Portföy Asistanı")
-    st.write("Portföyünüze ait adet ve maliyet bilgisini girin. Hesaplamalar yalnızca bu tarayıcı oturumunda işlenir; kalıcı olarak saklanmaz.")
+
+    st.title("📊 Portföy Asistanı")
+
+    st.write(
+        "Portföyündeki hisseleri, adetlerini ve maliyetlerini gir. "
+        "Sistem güncel fiyatlarla performans analizi yapar."
+    )
+
+
     default_portfolio = pd.DataFrame([
-        {"Sembol": "ASELS", "Adet": 0.0, "Ortalama Maliyet (TL)": 0.0},
-        {"Sembol": "THYAO", "Adet": 0.0, "Ortalama Maliyet (TL)": 0.0},
+        {
+            "Sembol": "ASELS",
+            "Adet": 0,
+            "Ortalama Maliyet (TL)": 0
+        },
+        {
+            "Sembol": "THYAO",
+            "Adet": 0,
+            "Ortalama Maliyet (TL)": 0
+        }
     ])
-    portfolio = st.data_editor(default_portfolio, num_rows="dynamic", use_container_width=True, hide_index=True,
-                               column_config={"Sembol": st.column_config.TextColumn("Sembol", required=True), "Adet": st.column_config.NumberColumn(min_value=0.0), "Ortalama Maliyet (TL)": st.column_config.NumberColumn(min_value=0.0)})
-    if not st.button("Portföyü analiz et", type="primary"):
+
+
+    portfolio = st.data_editor(
+        default_portfolio,
+        num_rows="dynamic",
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Sembol": st.column_config.TextColumn(
+                "Hisse"
+            ),
+
+            "Adet": st.column_config.NumberColumn(
+                "Lot",
+                min_value=0
+            ),
+
+            "Ortalama Maliyet (TL)": st.column_config.NumberColumn(
+                "Maliyet",
+                min_value=0
+            )
+        }
+    )
+
+
+    if not st.button(
+        "🚀 Portföyü Analiz Et",
+        type="primary"
+    ):
         render_disclaimer()
         return
-    positions = portfolio.copy()
-    positions["Sembol"] = positions["Sembol"].astype(str).str.upper().str.strip().str.replace(".IS", "", regex=False)
-    positions = positions[(positions["Sembol"] != "") & (positions["Adet"] > 0)]
-    if positions.empty:
-        st.warning("Analiz için en az bir sembol ve sıfırdan büyük adet girin.")
-        return
-    calculated = []
-    with st.spinner("Güncel fiyatlar alınıyor..."):
-        for _, position in positions.iterrows():
-            try:
-                data = fetch_stock(position["Sembol"])
-                current_price = float(data["history"]["Close"].iloc[-1])
-                value = current_price * float(position["Adet"])
-                cost = float(position["Ortalama Maliyet (TL)"]) * float(position["Adet"])
-                calculated.append({"Sembol": position["Sembol"], "Sektör": STOCKS.get(position["Sembol"], {}).get("sector", "Bilinmiyor"), "Güncel Değer": value, "Maliyet": cost, "Kâr/Zarar": value - cost})
-            except Exception as exc:
-                st.warning(f"{position['Sembol']} için güncel fiyat alınamadı: {exc}")
-    if not calculated:
-        st.error("Geçerli pozisyon için fiyat alınamadı.")
-        return
-    result = pd.DataFrame(calculated)
-    total_value = float(result["Güncel Değer"].sum())
-    result["Ağırlık (%)"] = result["Güncel Değer"] / total_value * 100
-    total_cost = float(result["Maliyet"].sum())
-    a, b, c = st.columns(3)
-    a.metric("Güncel portföy değeri", tr_number(total_value, " TL"))
-    b.metric("Toplam maliyet", tr_number(total_cost, " TL"))
-    c.metric("Hesaplanan kâr/zarar", tr_number(total_value - total_cost, " TL"))
-    st.subheader("Pozisyon dağılımı")
-    st.dataframe(result[["Sembol", "Sektör", "Güncel Değer", "Ağırlık (%)", "Kâr/Zarar"]], use_container_width=True, hide_index=True,
-                 column_config={"Güncel Değer": st.column_config.NumberColumn(format="%.2f TL"), "Ağırlık (%)": st.column_config.NumberColumn(format="%.1f%%"), "Kâr/Zarar": st.column_config.NumberColumn(format="%.2f TL")})
-    sector_weights = result.groupby("Sektör", as_index=False)["Güncel Değer"].sum()
-    sector_weights["Ağırlık (%)"] = sector_weights["Güncel Değer"] / total_value * 100
-    st.subheader("Sektör dağılımı")
-    st.bar_chart(sector_weights.set_index("Sektör")["Ağırlık (%)"])
-    largest_position = result.loc[result["Ağırlık (%)"].idxmax()]
-    if largest_position["Ağırlık (%)"] >= 35:
-        st.warning(f"Yoğunlaşma notu: {largest_position['Sembol']} portföyün %{largest_position['Ağırlık (%)']:.1f}'ini oluşturuyor.")
-    if len(sector_weights) == 1:
-        st.warning("Sektör çeşitliliği notu: portföy yalnızca tek sektörde yoğunlaşmış görünüyor.")
-    st.caption("Bu ekran pozisyon büyüklüklerini açıklar; varlık alım/satımı veya yeniden dengeleme önerisi vermez.")
-    render_disclaimer()
 
+
+
+    positions = portfolio.copy()
+
+
+    positions["Sembol"] = (
+        positions["Sembol"]
+        .astype(str)
+        .str.upper()
+        .str.strip()
+        .str.replace(".IS","")
+    )
+
+
+    positions = positions[
+        (positions["Sembol"] != "")
+        &
+        (positions["Adet"] > 0)
+    ]
+
+
+    if positions.empty:
+        st.warning(
+            "En az bir hisse ve lot miktarı girmelisin."
+        )
+        return
+
+
+
+    results = []
+
+
+    with st.spinner(
+        "Hisse fiyatları çekiliyor..."
+    ):
+
+        for _, row in positions.iterrows():
+
+            try:
+
+                data = fetch_stock(
+                    row["Sembol"]
+                )
+
+
+                history = data.get("history")
+
+
+                if history is None or history.empty:
+                    continue
+
+
+
+                current_price = float(
+                    history["Close"]
+                    .dropna()
+                    .iloc[-1]
+                )
+
+
+                adet = float(
+                    row["Adet"]
+                )
+
+
+                maliyet = (
+                    float(row["Ortalama Maliyet (TL)"])
+                    *
+                    adet
+                )
+
+
+                deger = (
+                    current_price
+                    *
+                    adet
+                )
+
+
+                results.append({
+
+                    "Sembol":
+                    row["Sembol"],
+
+                    "Sektör":
+                    STOCKS.get(
+                        row["Sembol"],
+                        {}
+                    ).get(
+                        "sector",
+                        "Bilinmiyor"
+                    ),
+
+                    "Lot":
+                    adet,
+
+                    "Maliyet":
+                    maliyet,
+
+                    "Güncel Değer":
+                    deger,
+
+                    "Kâr/Zarar":
+                    deger - maliyet
+                })
+
+
+            except Exception as e:
+
+                st.warning(
+                    f"{row['Sembol']} alınamadı: {e}"
+                )
+
+
+
+    if not results:
+
+        st.error(
+            "Hiçbir hisse için veri alınamadı."
+        )
+
+        return
+
+
+
+    result = pd.DataFrame(results)
+
+
+
+    result = result.dropna(
+        subset=[
+            "Güncel Değer"
+        ]
+    )
+
+
+    if result.empty:
+
+        st.error(
+            "Analiz edilecek geçerli veri yok."
+        )
+
+        return
+
+
+
+    total_value = result["Güncel Değer"].sum()
+
+    total_cost = result["Maliyet"].sum()
+
+
+    if total_value > 0:
+
+        result["Ağırlık (%)"] = (
+            result["Güncel Değer"]
+            /
+            total_value
+            *
+            100
+        )
+
+    else:
+
+        result["Ağırlık (%)"] = 0
+
+
+
+    profit = (
+        total_value
+        -
+        total_cost
+    )
+
+
+    profit_percent = (
+
+        profit / total_cost * 100
+
+        if total_cost > 0
+
+        else 0
+
+    )
+
+
+
+    c1,c2,c3,c4 = st.columns(4)
+
+
+    c1.metric(
+        "💰 Portföy",
+        tr_number(
+            total_value,
+            " TL"
+        )
+    )
+
+
+    c2.metric(
+        "📈 Kâr/Zarar",
+        tr_number(
+            profit,
+            " TL"
+        ),
+        f"%{profit_percent:.2f}"
+    )
+
+
+    c3.metric(
+        "📦 Hisse Sayısı",
+        len(result)
+    )
+
+
+
+    if not result.empty:
+
+        biggest = result.loc[
+            result["Güncel Değer"]
+            .idxmax()
+        ]
+
+
+        c4.metric(
+            "🏆 En Büyük Pozisyon",
+            biggest["Sembol"],
+            f"%{biggest['Ağırlık (%)']:.1f}"
+        )
+
+
+
+    st.divider()
+
+
+
+    st.subheader(
+        "📋 Pozisyon Detayı"
+    )
+
+
+    st.dataframe(
+
+        result[
+            [
+                "Sembol",
+                "Sektör",
+                "Lot",
+                "Maliyet",
+                "Güncel Değer",
+                "Kâr/Zarar",
+                "Ağırlık (%)"
+            ]
+        ],
+
+        use_container_width=True,
+
+        hide_index=True
+    )
+
+
+
+    st.subheader(
+        "🏭 Sektör Dağılımı"
+    )
+
+
+    sector = (
+        result
+        .groupby("Sektör")
+        ["Güncel Değer"]
+        .sum()
+    )
+
+
+    st.bar_chart(
+        sector
+    )
+
+
+    st.success(
+        "Portföy analizi tamamlandı."
+    )
+
+
+    render_disclaimer()
 
 if "page" not in st.session_state:
     st.session_state.page = "Ana Sayfa"
