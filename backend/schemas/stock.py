@@ -165,6 +165,7 @@ class StockAnalysisResponse(BaseModel):
     company_name: str
     sector: Optional[str] = None
     industry: Optional[str] = None
+    market_cap: Optional[float] = None
     live_price: Optional[float] = None
     latest_price: Optional[float] = None
     previous_close: Optional[float] = None
@@ -176,6 +177,7 @@ class StockAnalysisResponse(BaseModel):
     technical_explanations: list[str] = Field(default_factory=list)
     volume: VolumeSummarySchema
     financial: FinancialSummarySchema
+    fundamental: dict[str, Any] = Field(default_factory=dict)
     valuation: ValuationSummarySchema
     analysis: AnalysisSectionSchema
     news: list[NewsItemSchema] = Field(default_factory=list)

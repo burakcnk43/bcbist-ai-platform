@@ -13,6 +13,7 @@ if PROJECT_ROOT not in sys.path:
 from backend.routes.analysis import router as analysis_router
 from backend.routes.market import router as market_router
 from backend.routes.portfolio import router as portfolio_router
+from backend.routes.recommendations import router as recommendation_router
 from backend.routes.stocks import router as stocks_router
 
 logging.basicConfig(
@@ -42,6 +43,7 @@ app.include_router(stocks_router)
 app.include_router(market_router)
 app.include_router(analysis_router)
 app.include_router(portfolio_router)
+app.include_router(recommendation_router)
 
 
 @app.on_event("startup")
