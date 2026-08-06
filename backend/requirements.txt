@@ -10,3 +10,8 @@ lxml
 fastapi
 uvicorn
 aiohttp
+pydantic-settings
+diskcache
+ta
+scipy
+python-dotenv
