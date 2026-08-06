@@ -1,7 +1,5 @@
-from __future__ import annotations
-
 from pydantic import BaseModel, Field
-
+from typing import List
 
 class RecommendationItem(BaseModel):
     symbol: str
@@ -11,10 +9,9 @@ class RecommendationItem(BaseModel):
     fundamental_score: int
     risk_score: int
     recommendation_reason: str
-    confidence: float
-
+    confidence: int
 
 class RecommendationResponse(BaseModel):
     strategy: str
     count: int
-    recommendations: list[RecommendationItem] = Field(default_factory=list)
+    recommendations: List[RecommendationItem]

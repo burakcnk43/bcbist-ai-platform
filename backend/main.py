@@ -1,67 +1,41 @@
-import logging
-import os
-import sys
-from typing import Any
-
+import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
-
-from backend.routes.analysis import router as analysis_router
-from backend.routes.market import router as market_router
-from backend.routes.portfolio import router as portfolio_router
-from backend.routes.recommendations import router as recommendation_router
-from backend.routes.stocks import router as stocks_router
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
-
-logger = logging.getLogger("bcbist_backend")
+from .core.config import settings
+from .core.logger import logger
+from .api.routes import recommendations, market
 
 app = FastAPI(
-    title="BCBIST AI Platform",
-    version="1.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url="/openapi.json",
+    title=settings.PROJECT_NAME,
+    version=settings.VERSION,
+    openapi_url=f"{settings.API_STR}/openapi.json",
+    docs_url="/docs"
 )
 
+# Set all CORS enabled origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.BACKEND_CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(stocks_router)
-app.include_router(market_router)
-app.include_router(analysis_router)
-app.include_router(portfolio_router)
-app.include_router(recommendation_router)
-
+# Include Routers
+app.include_router(recommendations.router, prefix=settings.API_STR)
+app.include_router(market.router, prefix=settings.API_STR)
 
 @app.on_event("startup")
-async def startup_event() -> None:
-    """Log backend startup without changing application behavior."""
-    logger.info("BCBIST AI Platform startup completed")
-
+async def startup_event():
+    logger.info("[STARTUP] BCBIST Backend is starting...")
 
 @app.on_event("shutdown")
-async def shutdown_event() -> None:
-    """Log backend shutdown without changing application behavior."""
-    logger.info("BCBIST AI Platform shutdown completed")
+async def shutdown_event():
+    logger.info("[SHUTDOWN] BCBIST Backend is shutting down...")
 
+@app.get("/")
+async def root():
+    return {"message": "BCBIST API is running", "version": settings.VERSION}
 
-@app.get("/health", summary="Health check", description="Return backend availability")
-async def health() -> dict[str, Any]:
-    return {
-        "status": "online",
-        "service": "BCBIST AI Platform",
-        "version": "1.0",
-    }
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

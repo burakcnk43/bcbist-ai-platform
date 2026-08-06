@@ -1,61 +1,108 @@
-from __future__ import annotations
+import concurrent.futures
+from typing import List
+from ..schemas.recommendation import RecommendationResponse, RecommendationItem
+from .registry_service import registry_service
+from .stock_service import stock_service
+from ..core.logger import logger
 
-from typing import Any
-
-from backend.services.stock_service import StockService
-from backend.services.stock_registry import StockRegistryService
-
+# Import all engines
+from ..engines.technical_engine import technical_engine
+from ..engines.fundamental_engine import fundamental_engine
+from ..engines.risk_engine import risk_engine
+from ..engines.growth_engine import growth_engine
+from ..engines.value_engine import value_engine
+from ..engines.momentum_engine import momentum_engine
+from ..engines.trend_engine import trend_engine
+from ..engines.sector_engine import sector_engine
+from ..engines.volatility_engine import volatility_engine
+from ..engines.liquidity_engine import liquidity_engine
+from ..engines.catalyst_engine import catalyst_engine
+from ..engines.dividend_engine import dividend_engine
+from ..engines.confidence_engine import confidence_engine
+from ..engines.scoring_engine import scoring_engine
 
 class RecommendationService:
-    """Create ranked stock recommendations by reusing the existing analysis service."""
+    """Professional Orchestrator with Parallel Processing."""
 
-    def __init__(self) -> None:
-        self.stock_service = StockService()
-        self.registry_service = StockRegistryService()
+    def _analyze_single_symbol(self, symbol: str, strategy: str) -> RecommendationItem:
+        """Internal helper to analyze one stock."""
+        try:
+            data = stock_service.analyze_stock(symbol)
+            if not data or data.history is None:
+                return None
 
-    def get_recommendations(self, strategy: str, limit: int = 10) -> list[dict[str, Any]]:
-        """Return ranked recommendations for the requested strategy."""
-        symbols = [entry["symbol"] for entry in self.registry_service.get_registry(limit=max(limit, 20))]
-        ranked: list[dict[str, Any]] = []
-        for symbol in symbols:
-            try:
-                payload = self.stock_service.analyze_stock(symbol)
-            except Exception:
-                continue
-            score = payload.get("conclusion", {}).get("score") or 0
-            technical = payload.get("technical", {})
-            financial = payload.get("financial", {})
-            valuation = payload.get("valuation", {})
-            risk_metrics = payload.get("analysis", {}).get("risk_metrics", {})
-            recommendation_reason = self._build_reason(symbol, payload)
-            ranked.append(
-                {
-                    "symbol": symbol,
-                    "company": payload.get("company_name") or symbol,
-                    "ai_score": score,
-                    "technical_score": int(round((technical.get("rsi") or 0) / 2)) if technical.get("rsi") is not None else 0,
-                    "fundamental_score": int(round((financial.get("net_income") or 0) / 1000000)) if financial.get("net_income") is not None else 0,
-                    "risk_score": 100 - int(round((risk_metrics.get("annualized_volatility") or 0) / 2)) if risk_metrics.get("annualized_volatility") is not None else 50,
-                    "recommendation_reason": recommendation_reason,
-                    "confidence": self._confidence_for_strategy(strategy, payload),
-                }
+            # Run All 12 Engines
+            tech = technical_engine.calculate_metrics(data.history)
+            fund = fundamental_engine.calculate_metrics(data.info, data.income_stmt, data.balance_sheet, data.cash_flow)
+            risk = risk_engine.calculate_metrics(data.history, data.info)
+            growth = growth_engine.calculate_metrics(data.info)
+            value = value_engine.calculate_metrics(data.info)
+            mom = momentum_engine.calculate_metrics(data.history)
+            trend = trend_engine.calculate_metrics(data.history)
+            sec = sector_engine.calculate_metrics(data.info)
+            vol = volatility_engine.calculate_metrics(data.history)
+            liq = liquidity_engine.calculate_metrics(data.history)
+            cat = catalyst_engine.calculate_metrics(data.info)
+            div = dividend_engine.calculate_metrics(data.info)
+
+            # Aggregate all results for scoring
+            all_scores = {**tech, **fund, **risk, **growth, **value, **mom,
+                         **trend, **sec, **vol, **liq, **cat, **div}
+
+            ai_score = scoring_engine.calculate_total_score(all_scores, strategy)
+            conf = confidence_engine.calculate(tech, fund, risk)
+
+            return RecommendationItem(
+                symbol=symbol,
+                company=registry_service.get_stock_info(symbol).name,
+                ai_score=ai_score,
+                technical_score=tech.get('technical_score', 50),
+                fundamental_score=fund.get('fundamental_score', 50),
+                risk_score=risk.get('risk_score', 50),
+                recommendation_reason=self._generate_reason(strategy, ai_score, tech, fund, div),
+                confidence=conf
             )
+        except Exception as e:
+            logger.error(f"[ERROR] Parallel Scan {symbol}: {str(e)}")
+            return None
 
-        ranked.sort(key=lambda item: item["ai_score"], reverse=True)
-        return ranked[:limit]
+    async def get_recommendations(self, strategy: str) -> RecommendationResponse:
+        logger.info(f"[SCAN START] Parallel Strategy: {strategy}")
 
-    def _build_reason(self, symbol: str, payload: dict[str, Any]) -> str:
-        technical = payload.get("technical", {})
-        valuation = payload.get("valuation", {})
-        analysis = payload.get("analysis", {})
-        graham = valuation.get("graham", {}) or {}
-        summary = analysis.get("ai_summary", {}).get("summary") or "Balanced outlook"
-        return f"{symbol}: {summary} Graham={graham.get('graham_recommendation', 'Belirsiz')}"
+        all_symbols = registry_service.get_all_symbols()
+        recommendations = []
 
-    def _confidence_for_strategy(self, strategy: str, payload: dict[str, Any]) -> float:
-        base = float(payload.get("conclusion", {}).get("score") or 0)
-        if strategy in {"value", "dividend"}:
-            return round(min(100.0, base + 5.0), 1)
-        if strategy in {"high-growth", "high-risk"}:
-            return round(min(100.0, base + 2.0), 1)
-        return round(min(100.0, base), 1)
+        # Professional Parallel Execution using ThreadPoolExecutor
+        with concurrent.futures.ThreadPoolExecutor(max_workers=40) as executor:
+            future_to_symbol = {executor.submit(self._analyze_single_symbol, s, strategy): s for s in all_symbols}
+            for future in concurrent.futures.as_completed(future_to_symbol):
+                result = future.result()
+                if result:
+                    recommendations.append(result)
+
+        # Sort by AI Score descending
+        recommendations.sort(key=lambda x: x.ai_score, reverse=True)
+        top_10 = recommendations[:10]
+
+        logger.info(f"[SCAN END] Strategy: {strategy} | Total Processed: {len(recommendations)}")
+
+        return RecommendationResponse(
+            strategy=strategy,
+            count=len(top_10),
+            recommendations=top_10
+        )
+
+    def _generate_reason(self, strategy: str, score: int, tech: dict, fund: dict, div: dict) -> str:
+        """Dynamic reason generation based on actual metrics."""
+        if strategy == "dividend" and div.get('dividend_score', 0) > 70:
+            return "Exceptional dividend yield and payout stability detected."
+        if score > 85:
+            return "Institutional-grade pick with strong technical/fundamental alignment."
+        if fund.get('fundamental_score', 0) > 75:
+            return "High quality balance sheet and valuation discount."
+        if tech.get('technical_score', 0) > 75:
+            return "Strong momentum and bullish trend confirmation."
+
+        return "Consistent performance within strategy specific risk parameters."
+
+recommendation_service = RecommendationService()
