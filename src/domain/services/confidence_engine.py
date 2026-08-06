@@ -27,23 +27,33 @@ class ConfidenceScore:
 
 class ConfidenceEngine:
     """
-    Çok Faktörlü Güven Skorlama Motoru.
+    Advanced Multi-Factor Scoring Engine.
     
-    Ağırlıklar (Toplam 100):
-    - Finansal Sağlık (Öz Sermaye, Nakit Akışı): 25 puan
-    - Değerleme (NCV, F/K, PD/DD): 30 puan
-    - Kârlılık (ROE): 20 puan
-    - Büyüme (Öz Sermaye Trendi): 15 puan
-    - Teknik Göstergeler (RSI, Trend): 10 puan
-    
-    Hiçbir sinyal "AL/SAT" içermez. Sadece güven skoru ve yorum.
+    Weights vary by strategy to ensure professional-grade recommendations.
     """
     
-    WEIGHT_FINANCIAL_HEALTH = 0.25
-    WEIGHT_VALUATION = 0.30
-    WEIGHT_PROFITABILITY = 0.20
-    WEIGHT_GROWTH = 0.15
-    WEIGHT_TECHNICAL = 0.10
+    STRATEGY_WEIGHTS = {
+        "daily": {
+            "technical": 0.50, # Momentum, RSI, Volume
+            "financial": 0.30, # Basics
+            "risk": 0.20
+        },
+        "weekly": {
+            "technical": 0.40,
+            "financial": 0.40,
+            "risk": 0.20
+        },
+        "medium-term": {
+            "technical": 0.30,
+            "financial": 0.50, # Growth, ROE
+            "risk": 0.20
+        },
+        "long-term": {
+            "technical": 0.20, # Only major trends (EMA200)
+            "financial": 0.60, # Solvency, Profitability, Growth
+            "risk": 0.20
+        }
+    }
     
     def __init__(self):
         self.graham = GrahamValuationService()
@@ -62,187 +72,144 @@ class ConfidenceEngine:
         isletme_nakit_akisi: float,
         sector: str = "Genel",
         rsi: float = 50,
-        trend: str = "neutral"
+        trend: str = "neutral",
+        strategy: str = "daily",
+        technical_summary: Any = None # TechnicalSummary object
     ) -> ConfidenceScore:
-        """Tam kapsamlı güven skoru analizi."""
+        """Full multi-factor confidence scoring aligned with specific strategies."""
+
+        weights = self.STRATEGY_WEIGHTS.get(strategy, self.STRATEGY_WEIGHTS["daily"])
         
         breakdown = {}
         stars = {}
         strengths = []
         risks = []
+
+        # 1. TECHNICAL SCORING (Max 100 base)
+        tech_base = self._score_technical_advanced(technical_summary, strategy)
+        breakdown["Teknik"] = tech_base * weights["technical"]
         
-        # 1. FİNANSAL SAĞLIK (25 puan)
-        health_score = self._score_financial_health(
-            oz_sermaye, isletme_nakit_akisi
+        # 2. FINANCIAL SCORING (Max 100 base)
+        fin_base = self._score_financial_advanced(
+            oz_sermaye, isletme_nakit_akisi, net_kar,
+            donen_varliklar, kisa_vadeli_yukumlulukler,
+            strategy
         )
-        breakdown["Finansal Sağlık"] = health_score
+        breakdown["Finansal"] = fin_base * weights["financial"]
         
-        if oz_sermaye > 0:
-            stars["Öz Sermaye"] = 8
-            strengths.append("Öz sermaye pozitif")
-        else:
-            stars["Öz Sermaye"] = 0
-            risks.append("Öz sermaye negatif")
-        
-        if isletme_nakit_akisi > 0:
-            stars["Nakit Akışı"] = 8
-            strengths.append("İşletme nakit akışı pozitif")
-        else:
-            stars["Nakit Akışı"] = 2
-            risks.append("İşletme nakit akışı negatif")
-        
-        # 2. DEĞERLEME (30 puan)
-        val_score = self._score_valuation(
+        # 3. VALUATION & RISK (Max 100 base)
+        risk_base = self._score_risk_advanced(
             ticker, current_price, donen_varliklar,
             kisa_vadeli_yukumlulukler, uzun_vadeli_yukumlulukler,
-            hisse_sayisi, net_kar, oz_sermaye
+            hisse_sayisi, net_kar, oz_sermaye, technical_summary
         )
-        breakdown["Değerleme"] = val_score
+        breakdown["Risk/Değerleme"] = risk_base * weights["risk"]
         
-        # NCV analizi
-        ncv_analysis = self.graham.margin_of_safety_analysis(
-            ticker, current_price, donen_varliklar,
-            kisa_vadeli_yukumlulukler, uzun_vadeli_yukumlulukler,
-            hisse_sayisi
-        )
-        margin = ncv_analysis["margin_of_safety_pct"]
-        
-        if margin > 20:
-            stars["NCV Değeri"] = 9
-            strengths.append(f"NCV'ye göre %{margin:.1f} iskontolu")
-        elif margin > 0:
-            stars["NCV Değeri"] = 7
-        elif margin > -20:
-            stars["NCV Değeri"] = 4
-        else:
-            stars["NCV Değeri"] = 2
-            risks.append(f"NCV'ye göre %{abs(margin):.1f} primli")
-        
-        # F/K skoru
-        pe = self.ratios.calculate_pe_ratio(current_price, net_kar, hisse_sayisi)
-        pe_score = self.ratios.score_pe(pe)
-        stars["F/K Oranı"] = pe_score
-        
-        if pe_score >= 9:
-            strengths.append(f"F/K oranı cazip seviyede: {pe:.1f}")
-        elif pe_score <= 3:
-            risks.append(f"F/K oranı yüksek: {pe:.1f}")
-        
-        # 3. KÂRLILIK (20 puan)
-        roe = self.ratios.calculate_roe(net_kar, oz_sermaye)
-        roe_score = self.ratios.score_roe(roe)
-        prof_score = (roe_score / 10) * 100 * self.WEIGHT_PROFITABILITY
-        breakdown["Kârlılık"] = prof_score
-        stars["ROE"] = roe_score
-        
-        if roe >= 20:
-            strengths.append(f"Yüksek özkaynak kârlılığı: %{roe:.1f}")
-        elif roe < 10:
-            risks.append(f"Düşük özkaynak kârlılığı: %{roe:.1f}")
-        
-        # 4. BÜYÜME (15 puan) - Basitleştirilmiş
-        growth_score = 10 if oz_sermaye > 0 and net_kar > 0 else 5
-        breakdown["Büyüme"] = (growth_score / 10) * 100 * self.WEIGHT_GROWTH
-        stars["Büyüme"] = growth_score
-        
-        # 5. TEKNİK (10 puan)
-        tech_score = self._score_technical(rsi, trend)
-        breakdown["Teknik"] = tech_score
-        stars["Teknik"] = self._to_star_rating(rsi_score=7 if 40 <= rsi <= 60 else 5)
-        
-        # TOPLAM SKOR
+        # TOTAL AI SCORE
         total_score = sum(breakdown.values())
         total_score = max(0.0, min(100.0, total_score))
         
-        # KISA/UZUN VADE
-        short_term = 3 if trend == "bullish" else 2 if trend == "neutral" else 1
-        long_term = 4 if total_score > 60 else 3 if total_score > 40 else 2
+        # Commentary & Metadata
+        if oz_sermaye > 0: strengths.append("Güçlü Özsermaye")
+        else: risks.append("Negatif Özsermaye")
         
-        # YORUM
-        commentary = self._generate_commentary(
-            ticker, total_score, strengths, risks, sector
-        )
+        if isletme_nakit_akisi > 0: strengths.append("Pozitif Nakit Akışı")
+        else: risks.append("Nakit Akışı Zayıf")
+
+        short_term = 3 if trend in ["Boğa", "Güçlü Boğa"] else 2 if "Ayı" not in trend else 1
+        long_term = 4 if total_score > 70 else 3 if total_score > 45 else 2
         
         return ConfidenceScore(
             ticker=ticker,
             total_score=round(total_score, 2),
             breakdown=breakdown,
-            stars=stars,
+            stars={"Teknik": int(tech_base/10), "Finansal": int(fin_base/10), "Risk": int(risk_base/10)},
             short_term_rating=short_term,
             long_term_rating=long_term,
             strengths=strengths,
             risks=risks,
-            commentary=commentary,
+            commentary=self._generate_commentary(ticker, total_score, strengths, risks, sector, strategy),
             timestamp=datetime.now().isoformat()
         )
-    
-    def _score_financial_health(self, oz_sermaye: float, nakit_akisi: float) -> float:
-        """Finansal sağlık skoru"""
-        equity_score = 8 if oz_sermaye > 0 else 2
-        cash_score = 8 if nakit_akisi > 0 else 2
-        return ((equity_score * 0.6 + cash_score * 0.4) / 10) * 100 * self.WEIGHT_FINANCIAL_HEALTH
-    
-    def _score_valuation(
-        self, ticker: str, current_price: float,
-        donen_varliklar: float, kvyk: float, uvyk: float,
-        hisse_sayisi: int, net_kar: float, oz_sermaye: float
-    ) -> float:
-        """Değerleme skoru"""
-        # NCV
-        ncv = self.graham.margin_of_safety_analysis(
-            ticker, current_price, donen_varliklar, kvyk, uvyk, hisse_sayisi
-        )
-        margin = ncv["margin_of_safety_pct"]
-        ncv_score = 9 if margin > 20 else 7 if margin > 0 else 4 if margin > -20 else 2
+
+    def _score_technical_advanced(self, summary: Any, strategy: str) -> float:
+        """Evaluate ~10 technical factors."""
+        if not summary: return 50.0
+        score = 0
         
-        # F/K
-        pe = self.ratios.calculate_pe_ratio(current_price, net_kar, hisse_sayisi)
+        # Trend (High impact)
+        if "Boğa" in summary.trend: score += 30
+        if "Güçlü Boğa" in summary.trend: score += 10
+        
+        # RSI
+        if summary.rsi:
+            if 45 <= summary.rsi <= 65: score += 20 # Ideal buy zone
+            elif summary.rsi < 30: score += 15 # Oversold rebound
+            elif summary.rsi > 75: score -= 10 # Overbought risk
+
+        # Moving Averages
+        if summary.sma_200 and summary.ema_50:
+            if summary.ema_50 > summary.sma_200: score += 15 # Golden Cross proxy
+
+        # Momentum & Volume
+        if (summary.volume_ratio or 0) > 1.5: score += 15
+        if (summary.momentum_20d or 0) > 5: score += 10
+        
+        # Volatility (Bollinger)
+        if summary.bollinger_upper and summary.bollinger_lower:
+            # Check if price is near bottom or top
+            pass # Simplified for now
+
+        return float(max(0, min(100, score)))
+
+    def _score_financial_advanced(self, equity, cfo, net_income, cur_assets, cur_liab, strategy) -> float:
+        """Evaluate core financial health."""
+        score = 0
+        if equity > 0: score += 30
+        if cfo > 0: score += 20
+        if net_income > 0: score += 20
+        
+        # Liquidity
+        if cur_liab > 0:
+            current_ratio = cur_assets / cur_liab
+            if current_ratio > 1.5: score += 20
+            elif current_ratio > 1.0: score += 10
+
+        # Strategy specific
+        if strategy == "long-term" and net_income > 0:
+            score += 10 # Extra weight on profitability for long term
+
+        return float(max(0, min(100, score)))
+
+    def _score_risk_advanced(self, ticker, price, cur_a, cur_l, long_l, shares, net_kar, equity, summary) -> float:
+        """Evaluate valuation (NCV/PE) and technical risk."""
+        score = 50.0 # Start neutral
+        
+        # Graham NCV
+        try:
+            ncv = self.graham.margin_of_safety_analysis(ticker, price, cur_a, cur_l, long_l, shares)
+            margin = ncv["margin_of_safety_pct"]
+            if margin > 20: score += 25
+            elif margin < -30: score -= 20
+        except: pass
+        
+        # P/E Ratio
+        pe = self.ratios.calculate_pe_ratio(price, net_kar, shares)
         pe_score = self.ratios.score_pe(pe)
+        score += (pe_score - 5) * 2 # Map 0-10 score to risk impact
         
-        # PD/DD
-        pb = self.ratios.calculate_pb_ratio(current_price, oz_sermaye, hisse_sayisi)
-        pb_score = self.ratios.score_pb(pb)
-        
-        return ((ncv_score * 0.4 + pe_score * 0.4 + pb_score * 0.2) / 10) * 100 * self.WEIGHT_VALUATION
+        return float(max(0, min(100, score)))
     
-    def _score_technical(self, rsi: float, trend: str) -> float:
-        """Teknik skor"""
-        if 40 <= rsi <= 60:
-            rsi_score = 7
-        elif 30 <= rsi < 40 or 60 < rsi <= 70:
-            rsi_score = 5
-        else:
-            rsi_score = 3
-        
-        trend_score = 8 if trend == "bullish" else 5 if trend == "neutral" else 3
-        
-        tech_avg = (rsi_score + trend_score) / 2
-        return (tech_avg / 10) * 100 * self.WEIGHT_TECHNICAL
-    
-    def _generate_commentary(
-        self, ticker: str, total_score: float,
-        strengths: List[str], risks: List[str], sector: str
-    ) -> str:
-        """İnsan benzeri yorum"""
-        if total_score >= 80:
-            comment = f"{ticker}, {sector} sektöründe yüksek güven skoruna sahip."
-        elif total_score >= 60:
-            comment = f"{ticker} için orta-üst seviye güven skoru."
-        elif total_score >= 40:
-            comment = f"{ticker} ortalama bir profil çiziyor."
-        elif total_score >= 20:
-            comment = f"{ticker} için temkinli yaklaşım önerilir."
-        else:
-            comment = f"{ticker} yüksek risk profili gösteriyor."
-        
-        if strengths:
-            comment += f" ✅ {'; '.join(strengths[:2])}."
-        if risks:
-            comment += f" ⚠️ {'; '.join(risks[:2])}."
-        
-        return comment
-    
-    @staticmethod
-    def _to_star_rating(rsi_score: int = 5) -> int:
-        """0-10 arası yıldız derecelendirme"""
-        return min(10, max(0, rsi_score))
+    def _generate_commentary(self, ticker, total_score, strengths, risks, sector, strategy) -> str:
+        prefix = {
+            "daily": "Günlük momentum analizi",
+            "weekly": "Haftalık trend görünümü",
+            "medium-term": "Orta vade büyüme odaklı analiz",
+            "long-term": "Uzun vade değerleme raporu"
+        }.get(strategy, "AI Analizi")
+
+        if total_score >= 75: verdict = "Yüksek Potansiyel"
+        elif total_score >= 50: verdict = "Dengeli/Pozitif"
+        else: verdict = "Yüksek Risk/Zayıf"
+
+        return f"{prefix}: {ticker} için {verdict} ({total_score:.1f}). {sector} sektöründe {' '.join(strengths[:1])}."

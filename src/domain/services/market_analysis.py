@@ -21,12 +21,21 @@ class TechnicalSummary:
     macd_signal: float | None
     sma_20: float | None
     sma_50: float | None
+    sma_200: float | None
     ema_20: float | None
+    ema_50: float | None
+    ema_200: float | None
     bollinger_upper: float | None
     bollinger_lower: float | None
+    bollinger_mavg: float | None
     momentum_20d: float | None
     volume_ratio: float | None
     atr_14: float | None
+    adx: float | None
+    stoch_k: float | None
+    stoch_d: float | None
+    cci: float | None
+    williams_r: float | None
     support: float | None
     resistance: float | None
     explanations: list[str]
@@ -36,7 +45,11 @@ def _number(value: Any) -> float | None:
     """Convert a pandas/numpy value to float without leaking NaN to the UI."""
     if value is None or pd.isna(value):
         return None
-    return float(value)
+    try:
+        val = float(value)
+        return val if np.isfinite(val) else None
+    except (ValueError, TypeError):
+        return None
 
 
 def _last(series: pd.Series) -> float | None:
@@ -44,17 +57,14 @@ def _last(series: pd.Series) -> float | None:
 
 
 def calculate_technicals(history: pd.DataFrame) -> TechnicalSummary:
-    """Calculate commonly used indicators from an OHLCV dataframe.
-
-    The calculation needs at least 60 daily bars for a complete summary. Partial
-    data remains useful, but unavailable indicators are explicitly returned as
-    ``None`` instead of being guessed.
-    """
+    """Calculate professional-grade indicators from an OHLCV dataframe."""
     required = {"Close", "High", "Low", "Volume"}
     if history is None or history.empty or not required.issubset(history.columns):
-        return TechnicalSummary("Veri yetersiz", None, None, None, None, None, None,
-                                None, None, None, None, None, None, None,
-                                ["Teknik analiz için yeterli fiyat verisi alınamadı."])
+        return TechnicalSummary(
+            "Veri yetersiz", None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None, None, None, None,
+            None, None, ["Teknik analiz için yeterli fiyat verisi alınamadı."]
+        )
 
     frame = history.copy().dropna(subset=["Close"])
     close = frame["Close"].astype(float)
@@ -62,86 +72,111 @@ def calculate_technicals(history: pd.DataFrame) -> TechnicalSummary:
     low = frame["Low"].astype(float)
     volume = frame["Volume"].astype(float)
 
+    # 1. RSI (Wilder's)
     delta = close.diff()
-    # Wilder smoothing is the conventional RSI calculation and reacts more
-    # naturally than a simple rolling average when new prices arrive.
     gains = delta.clip(lower=0).ewm(alpha=1 / 14, adjust=False, min_periods=14).mean()
     losses = (-delta.clip(upper=0)).ewm(alpha=1 / 14, adjust=False, min_periods=14).mean()
-    relative_strength = gains / losses.replace(0, np.nan)
-    rsi = 100 - (100 / (1 + relative_strength))
-    # Flat loss/gain windows are meaningful edge cases: a window containing
-    # gains but no losses has RSI 100; the inverse has RSI 0.
-    rsi = rsi.mask((losses == 0) & (gains > 0), 100.0)
-    rsi = rsi.mask((gains == 0) & (losses > 0), 0.0)
+    rs = gains / losses.replace(0, np.nan)
+    rsi = 100 - (100 / (1 + rs))
 
+    # 2. MACD
     ema_12 = close.ewm(span=12, adjust=False).mean()
     ema_26 = close.ewm(span=26, adjust=False).mean()
     macd_line = ema_12 - ema_26
     macd_signal = macd_line.ewm(span=9, adjust=False).mean()
-    sma_20_series = close.rolling(20, min_periods=20).mean()
-    sma_50_series = close.rolling(50, min_periods=50).mean()
-    ema_20_series = close.ewm(span=20, adjust=False).mean()
+
+    # 3. Moving Averages
+    sma_20 = close.rolling(20, min_periods=20).mean()
+    sma_50 = close.rolling(50, min_periods=50).mean()
+    sma_200 = close.rolling(200, min_periods=200).mean()
+    ema_20 = close.ewm(span=20, adjust=False).mean()
+    ema_50 = close.ewm(span=50, adjust=False).mean()
+    ema_200 = close.ewm(span=200, adjust=False).mean()
+
+    # 4. Bollinger Bands
     rolling_std = close.rolling(20, min_periods=20).std()
-    upper_band = sma_20_series + (2 * rolling_std)
-    lower_band = sma_20_series - (2 * rolling_std)
+    boll_mid = sma_20
+    boll_upper = boll_mid + (2 * rolling_std)
+    boll_lower = boll_mid - (2 * rolling_std)
+
+    # 5. ATR (Average True Range)
+    prev_close = close.shift(1)
+    tr = pd.concat([high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1).max(axis=1)
+    atr = tr.ewm(alpha=1/14, adjust=False).mean()
+
+    # 6. ADX (Lightweight approximation)
+    up_move = high.diff()
+    down_move = low.diff().abs()
+    plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0)
+    minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
+    tr_smooth = tr.ewm(alpha=1/14, adjust=False).mean()
+    plus_di = 100 * pd.Series(plus_dm).ewm(alpha=1/14, adjust=False).mean() / tr_smooth
+    minus_di = 100 * pd.Series(minus_dm).ewm(alpha=1/14, adjust=False).mean() / tr_smooth
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)
+    adx = dx.ewm(alpha=1/14, adjust=False).mean()
+
+    # 7. Stochastic Oscillator
+    low_14 = low.rolling(14).min()
+    high_14 = high.rolling(14).max()
+    stoch_k = 100 * (close - low_14) / (high_14 - low_14).replace(0, np.nan)
+    stoch_d = stoch_k.rolling(3).mean()
+
+    # 8. Williams %R
+    williams_r = -100 * (high_14 - close) / (high_14 - low_14).replace(0, np.nan)
+
+    # 9. CCI (Commodity Channel Index)
+    tp = (high + low + close) / 3
+    cci = (tp - tp.rolling(20).mean()) / (0.015 * tp.rolling(20).apply(lambda x: np.std(x)))
+
+    # 10. Trend & Volume
     momentum = close.pct_change(20) * 100
-    volume_average = volume.rolling(20, min_periods=20).mean()
-    volume_ratio = volume / volume_average.replace(0, np.nan)
-    previous_close = close.shift(1)
-    true_range = pd.concat([high - low, (high - previous_close).abs(), (low - previous_close).abs()], axis=1).max(axis=1)
-    atr_14 = true_range.ewm(alpha=1 / 14, adjust=False, min_periods=14).mean()
+    vol_avg = volume.rolling(20).mean()
+    vol_ratio = volume / vol_avg.replace(0, np.nan)
 
     price = _last(close)
-    last_sma20, last_sma50 = _last(sma_20_series), _last(sma_50_series)
-    if price is None or last_sma20 is None:
+    l_sma20, l_sma50, l_sma200 = _last(sma_20), _last(sma_50), _last(sma_200)
+
+    if price is None or l_sma20 is None:
         trend = "Veri yetersiz"
-    elif last_sma50 is not None and price > last_sma20 > last_sma50:
-        trend = "Yukarı yönlü"
-    elif last_sma50 is not None and price < last_sma20 < last_sma50:
-        trend = "Aşağı yönlü"
+    elif l_sma200 is not None and price > l_sma200:
+        trend = "Güçlü Boğa" if price > l_sma50 > l_sma200 else "Boğa"
+    elif l_sma200 is not None and price < l_sma200:
+        trend = "Güçlü Ayı" if price < l_sma50 < l_sma200 else "Ayı"
     else:
-        trend = "Yatay / karışık"
+        trend = "Yatay"
 
-    last_rsi = _last(rsi)
-    last_macd, last_signal = _last(macd_line), _last(macd_signal)
-    notes: list[str] = [f"Fiyatın hareketli ortalamalara göre görünümü: {trend}."]
-    if last_rsi is not None:
-        if last_rsi >= 70:
-            notes.append(f"RSI {last_rsi:.1f}: aşırı alım eşiği üzerindedir; tek başına satış sinyali değildir.")
-        elif last_rsi <= 30:
-            notes.append(f"RSI {last_rsi:.1f}: aşırı satım eşiği altındadır; tek başına alım sinyali değildir.")
-        else:
-            notes.append(f"RSI {last_rsi:.1f}: nötr bölgede yer alıyor.")
-    if last_macd is not None and last_signal is not None:
-        direction = "üzerinde" if last_macd > last_signal else "altında"
-        notes.append(f"MACD, sinyal çizgisinin {direction}; momentum bu göstergeye göre izlenmelidir.")
-    last_volume_ratio = _last(volume_ratio)
-    if last_volume_ratio is not None:
-        notes.append(f"Son gün hacmi, 20 günlük ortalamanın {last_volume_ratio:.2f} katı.")
+    notes = [f"Ana Trend: {trend}"]
+    l_rsi = _last(rsi)
+    if l_rsi: notes.append(f"RSI {l_rsi:.1f} ({'Aşırı Alım' if l_rsi > 70 else 'Aşırı Satım' if l_rsi < 30 else 'Nötr'})")
 
-    # 20-day levels are a more actionable short/medium-term reference than an
-    # old 60-day extreme, while the UI clearly labels them as observation levels.
     lookback = min(20, len(frame))
     return TechnicalSummary(
         trend=trend,
-        rsi=last_rsi,
-        macd=last_macd,
-        macd_signal=last_signal,
-        sma_20=last_sma20,
-        sma_50=last_sma50,
-        ema_20=_last(ema_20_series),
-        bollinger_upper=_last(upper_band),
-        bollinger_lower=_last(lower_band),
+        rsi=l_rsi,
+        macd=_last(macd_line),
+        macd_signal=_last(macd_signal),
+        sma_20=l_sma20,
+        sma_50=l_sma50,
+        sma_200=l_sma200,
+        ema_20=_last(ema_20),
+        ema_50=_last(ema_50),
+        ema_200=_last(ema_200),
+        bollinger_upper=_last(boll_upper),
+        bollinger_lower=_last(boll_lower),
+        bollinger_mavg=_last(boll_mid),
         momentum_20d=_last(momentum),
-        volume_ratio=last_volume_ratio,
-        atr_14=_last(atr_14),
+        volume_ratio=_last(vol_ratio),
+        atr_14=_last(atr),
+        adx=_last(adx),
+        stoch_k=_last(stoch_k),
+        stoch_d=_last(stoch_d),
+        cci=_last(cci),
+        williams_r=_last(williams_r),
         support=_number(low.tail(lookback).min()),
         resistance=_number(high.tail(lookback).max()),
-        explanations=notes,
+        explanations=notes
     )
-
-
-def score_opportunity(summary: TechnicalSummary) -> tuple[int, list[str]]:
+ef score_opportunity(summary: TechnicalSummary) -> tuple[int, list[str]]:
     """Return a transparent watch-list score, not an investment recommendation."""
     score = 0
     reasons: list[str] = []
