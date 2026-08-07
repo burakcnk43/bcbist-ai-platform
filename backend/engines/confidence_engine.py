@@ -2,30 +2,46 @@ from typing import Dict, Any
 from ..core.logger import logger
 
 class ConfidenceEngine:
-    """Professional Data Confidence Engine (Measures reliability of signals)."""
+    """Professional Signal Reliability and Data Integrity Engine."""
 
-    def calculate(self, tech: Dict, fund: Dict, risk: Dict) -> int:
+    def calculate_confidence(self, tech: Dict[str, Any], fund: Dict[str, Any], risk: Dict[str, Any]) -> int:
+        """Determines reliability score (0-100) based on signal harmony."""
         try:
             score = 100
 
-            # 1. Data Integrity Check
-            if not tech or tech.get('technical_score') is None: score -= 25
-            if not fund or fund.get('fundamental_score') is None: score -= 25
+            # --- 1. Data Availability Penalties ---
+            # If indicators are at default values, penalize
+            if tech.get('technical_score', 50) == 50: score -= 15
+            if fund.get('fundamental_score', 50) == 50: score -= 15
 
-            # 2. Signal Discrepancy (e.g. strong tech but terrible fund decreases confidence)
+            # --- 2. Signal Discrepancy (Conflict Detection) ---
+            # Strong technicals with weak fundamentals decreases confidence
             t_score = tech.get('technical_score', 50)
             f_score = fund.get('fundamental_score', 50)
-            diff = abs(t_score - f_score)
-            if diff > 50: score -= 20 # High conflict signal
 
-            # 3. Risk Dampening
-            if risk.get('volatility', 0) > 0.60: score -= 20
+            discrepancy = abs(t_score - f_score)
+            if discrepancy > 50:
+                score -= 30
+            elif discrepancy > 30:
+                score -= 15
 
-            final_score = max(10, score)
-            logger.info(f"[CONFIDENCE] Final Score: {final_score}")
-            return int(final_score)
+            # --- 3. Stability Checks ---
+            # High volatility decreases confidence in the signal's persistence
+            vol = risk.get('volatility', 0.3)
+            if vol > 0.60:
+                score -= 20
+            elif vol > 0.40:
+                score -= 10
+
+            # --- 4. Liquidity Risk ---
+            # Low liquidity makes indicators less reliable (manipulation/noise)
+            # (Handled via risk metrics if available)
+
+            final_score = int(min(max(score, 10), 100))
+            return final_score
+
         except Exception as e:
-            logger.error(f"[ERROR] Confidence Engine: {str(e)}")
+            logger.error(f"[ERROR] Confidence Calculation: {str(e)}")
             return 50
 
 confidence_engine = ConfidenceEngine()

@@ -4,10 +4,10 @@ from typing import Dict, Any
 from ..core.logger import logger
 
 class TrendEngine:
-    """Professional Trend Analysis (EMA Alignment & ADX Confirmation)."""
+    """Trend Quality and Confirmation Engine."""
 
     def calculate_metrics(self, history: pd.DataFrame) -> Dict[str, Any]:
-        if history is None or len(history) < 50:
+        if history is None or history.empty or len(history) < 200:
             return {"trend_score": 50}
 
         try:
@@ -15,27 +15,36 @@ class TrendEngine:
             high = history['High']
             low = history['Low']
 
-            ema_20 = ta.trend.ema_indicator(close, window=20).iloc[-1]
-            ema_50 = ta.trend.ema_indicator(close, window=50).iloc[-1]
-            ema_200 = ta.trend.ema_indicator(close, window=200).iloc[-1] if len(close) >= 200 else ema_50
+            # --- Trend Confirmation ---
+            ema20 = ta.trend.ema_indicator(close, window=20).iloc[-1]
+            ema50 = ta.trend.ema_indicator(close, window=50).iloc[-1]
+            ema200 = ta.trend.ema_indicator(close, window=200).iloc[-1]
 
+            is_uptrend = ema20 > ema50 > ema200
+
+            # --- ADX Trend Strength ---
             adx = ta.trend.ADXIndicator(high, low, close).adx().iloc[-1]
 
-            # Score (0-100)
-            score = 0
+            # --- SuperTrend (Basic) ---
+            atr = ta.volatility.AverageTrueRange(high, low, close).average_true_range().iloc[-1]
+            upper_band = ((high.iloc[-1] + low.iloc[-1]) / 2) + (3 * atr)
+            lower_band = ((high.iloc[-1] + low.iloc[-1]) / 2) - (3 * atr)
 
-            # 1. EMA Alignment (Perfect order is 20 > 50 > 200)
-            if ema_20 > ema_50: score += 30
-            if ema_50 > ema_200: score += 30
-            if close.iloc[-1] > ema_20: score += 10
+            metrics = {
+                "is_uptrend": is_uptrend,
+                "adx": adx,
+                "supertrend_confirm": close.iloc[-1] > lower_band
+            }
 
-            # 2. ADX Confirmation (Strength of trend)
-            if adx > 25: score += 30
-            elif adx < 15: score -= 20 # Sideways/Weak trend
+            # --- Trend Score (0-100) ---
+            score = 50
+            if is_uptrend: score += 20
+            if adx > 25: score += 15
+            if metrics['supertrend_confirm']: score += 15
 
-            metrics = {"trend_score": max(0, min(score, 100))}
-            logger.info(f"[TREND] Final Score: {metrics['trend_score']}")
+            metrics['trend_score'] = min(max(score, 0), 100)
             return metrics
+
         except Exception as e:
             logger.error(f"[ERROR] Trend Engine: {str(e)}")
             return {"trend_score": 50}

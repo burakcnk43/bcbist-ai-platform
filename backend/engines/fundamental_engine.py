@@ -1,72 +1,87 @@
-import pandas as pd
 from typing import Dict, Any
+import numpy as np
 from ..core.logger import logger
 
 class FundamentalEngine:
-    """Professional Fundamental Analysis Engine with full Piotroski and Altman Z-Score."""
+    """Institutional Grade Fundamental Analysis Engine with NaN-safe logic."""
 
     def calculate_metrics(self, info: Dict, income: Dict, balance: Dict, cash: Dict) -> Dict[str, Any]:
+        """Calculates professional financial ratios with robust error handling."""
         metrics = {}
         try:
-            # Valuation
-            metrics['pe'] = info.get('trailingPE', 0)
-            metrics['pb'] = info.get('priceToBook', 0)
-            metrics['ps'] = info.get('priceToSalesTrailing12Months', 0)
-            metrics['ev_ebitda'] = info.get('enterpriseToEbitda', 0)
+            def safe_float(val, default=0.0):
+                try:
+                    if val is None or (isinstance(val, float) and np.isnan(val)):
+                        return default
+                    return float(val)
+                except (ValueError, TypeError):
+                    return default
 
-            # Efficiency
-            metrics['roe'] = info.get('returnOnEquity', 0)
-            metrics['roa'] = info.get('returnOnAssets', 0)
-            metrics['roic'] = info.get('returnOnCapital', 0) or 0
+            # --- 1. Key Extraction ---
+            pe = safe_float(info.get('trailingPE', info.get('forwardPE')))
+            pb = safe_float(info.get('priceToBook'))
+            ps = safe_float(info.get('priceToSalesTrailing12Months'))
+            ev_ebitda = safe_float(info.get('enterpriseToEbitda'))
 
-            # --- Piotroski F-Score (Full 9 Criteria) ---
-            # This requires historical comparison, if not available we use current stats
+            roe = safe_float(info.get('returnOnEquity'))
+            roa = safe_float(info.get('returnOnAssets'))
+            roic = safe_float(info.get('returnOnCapital'))
+
+            curr_ratio = safe_float(info.get('currentRatio'))
+            quick_ratio = safe_float(info.get('quickRatio')) # Acid Test
+            debt_eq = safe_float(info.get('debtToEquity'))
+
+            rev_growth = safe_float(info.get('revenueGrowth'))
+            eps_growth = safe_float(info.get('earningsGrowth', 0.05))
+
+            metrics.update({
+                'pe_ratio': pe, 'pb_ratio': pb, 'ps_ratio': ps, 'ev_ebitda': ev_ebitda,
+                'roe': roe, 'roa': roa, 'roic': roic,
+                'current_ratio': curr_ratio, 'quick_ratio': quick_ratio, 'debt_equity': debt_eq,
+                'revenue_growth': rev_growth, 'eps_growth': eps_growth
+            })
+
+            # --- 2. Piotroski F-Score (9 points check proxy) ---
             f_score = 0
-            if info.get('netIncomeToCommon', 0) > 0: f_score += 1 # 1. Profitability
-            if info.get('operatingCashflow', 0) > 0: f_score += 1 # 2. Cash Flow
-            if info.get('operatingCashflow', 0) > info.get('netIncomeToCommon', 0): f_score += 1 # 4. Accruals
-            if info.get('currentRatio', 0) > 1.5: f_score += 1 # 7. Liquidity (Simplified)
-            metrics['f_score'] = f_score
+            # Profitability
+            if safe_float(info.get('netIncomeToCommon')) > 0: f_score += 1
+            if roa > 0: f_score += 1
+            if safe_float(info.get('operatingCashflow')) > 0: f_score += 1
+            if safe_float(info.get('operatingCashflow')) > safe_float(info.get('netIncomeToCommon')): f_score += 1
+            # Health/Liquidity
+            if debt_eq < 100: f_score += 1
+            if curr_ratio > 1.2: f_score += 1
+            if info.get('sharesOutstanding') == info.get('impliedSharesOutstanding'): f_score += 1 # Dilution check proxy
 
-            # --- Altman Z-Score (Simplified for Public Companies) ---
-            # Z = 1.2A + 1.4B + 3.3C + 0.6D + 1.0E
-            # Requires detailed balance sheet, using available proxies
-            current_assets = info.get('totalCurrentAssets', 1)
-            current_liab = info.get('totalCurrentLiabilities', 1)
-            total_assets = info.get('totalAssets', 1)
-            working_cap = current_assets - current_liab
+            metrics['piotroski_score'] = f_score
 
-            z_score = (1.2 * (working_cap / total_assets)) + \
-                      (1.4 * (info.get('retainedEarnings', 0) / total_assets)) + \
-                      (3.3 * (info.get('ebitda', 0) / total_assets)) + \
-                      (0.6 * (info.get('marketCap', 1) / info.get('totalLiabilitiesNetMinorityInterest', 1)))
-            metrics['z_score'] = z_score
+            # --- 3. Altman Z-Score Proxy ---
+            # Using current ratio and roa as stability proxies
+            metrics['altman_z'] = (1.2 * curr_ratio) + (3.3 * roa)
 
-            # --- Intrinsic Value (Benjamin Graham Formula) ---
-            # V = (EPS * (8.5 + 2g) * 4.4) / Y
-            eps = info.get('trailingEps', 0)
-            growth_est = info.get('earningsGrowth', 0.05) * 100
-            y_bond = 4.5 # Benchmark yield
+            # --- 4. Graham Intrinsic Value & Number ---
+            eps = safe_float(info.get('trailingEps'))
             if eps > 0:
-                metrics['intrinsic_value'] = (eps * (8.5 + 2 * growth_est) * 4.4) / y_bond
+                growth_val = eps_growth * 100
+                metrics['graham_value'] = (eps * (8.5 + 2 * growth_val) * 4.4) / 4.5
+                metrics['graham_number'] = np.sqrt(22.5 * eps * safe_float(info.get('bookValue')))
             else:
-                metrics['intrinsic_value'] = 0
+                metrics['graham_value'] = 0
+                metrics['graham_number'] = 0
 
-            # --- Fundamental Score (0-100) ---
-            score = 0
-            if 0 < metrics['pe'] < 18: score += 20
-            if 0 < metrics['pb'] < 2.5: score += 15
-            if metrics['roe'] > 0.15: score += 20
-            if metrics['f_score'] >= 3: score += 20
-            if metrics['z_score'] > 1.8: score += 15
-            if metrics['intrinsic_value'] > info.get('currentPrice', 9999): score += 10
+            # --- 5. Fundamental Score Calculation ---
+            score = 50
+            if 0 < pe < 15: score += 10
+            if roe > 0.18: score += 10
+            if f_score >= 4: score += 15
+            if rev_growth > 0.12: score += 10
+            if debt_eq < 80: score += 5
 
-            metrics['fundamental_score'] = min(score, 100)
-            logger.info(f"[FUNDAMENTAL] Score: {metrics['fundamental_score']}")
+            metrics['fundamental_score'] = int(min(max(score, 0), 100))
             return metrics
 
         except Exception as e:
-            logger.error(f"[ERROR] Fundamental Engine Detail: {str(e)}")
+            logger.error(f"[FUNDAMENTAL ENGINE ERROR] {str(e)}")
             return {"fundamental_score": 50}
 
 fundamental_engine = FundamentalEngine()

@@ -1,43 +1,49 @@
 import pandas as pd
-import numpy as np
 from typing import Dict, Any
 from ..core.logger import logger
 
 class MomentumEngine:
-    """Professional Momentum Analysis (Relative Strength & Volatility-Adjusted Momentum)."""
+    """Relative Strength and Momentum Analysis Engine."""
 
     def calculate_metrics(self, history: pd.DataFrame) -> Dict[str, Any]:
-        if history is None or len(history) < 60:
+        if history is None or history.empty or len(history) < 200:
             return {"momentum_score": 50}
 
         try:
             close = history['Close']
 
-            # 1. Price Momentum (Short vs Long)
-            mom_10 = (close.iloc[-1] / close.iloc[-10]) - 1
-            mom_30 = (close.iloc[-1] / close.iloc[-30]) - 1
-            mom_60 = (close.iloc[-1] / close.iloc[-60]) - 1
+            # --- Returns for different periods ---
+            mom5 = (close.iloc[-1] / close.iloc[-5]) - 1
+            mom10 = (close.iloc[-1] / close.iloc[-10]) - 1
+            mom20 = (close.iloc[-1] / close.iloc[-20]) - 1
+            mom50 = (close.iloc[-1] / close.iloc[-50]) - 1
+            mom100 = (close.iloc[-1] / close.iloc[-100]) - 1
+            mom200 = (close.iloc[-1] / close.iloc[-200]) - 1
 
-            # 2. Volume Momentum
-            avg_vol_short = history['Volume'].tail(5).mean()
-            avg_vol_long = history['Volume'].tail(20).mean()
-            vol_mom = (avg_vol_short / avg_vol_long) if avg_vol_long > 0 else 1.0
+            # --- Relative Strength (Simplified) ---
+            # In a full app, this would be relative to XU100
+            rs_score = mom20 * 0.4 + mom50 * 0.3 + mom200 * 0.3
 
-            # 3. Momentum Quality (ADX as proxy for trend strength)
-            # (Handled mostly in trend engine, but we add a bit here)
+            metrics = {
+                "mom5": mom5,
+                "mom10": mom10,
+                "mom20": mom20,
+                "mom50": mom50,
+                "mom100": mom100,
+                "mom200": mom200,
+                "rs_score": rs_score
+            }
 
+            # --- Momentum Score (0-100) ---
             score = 50
-            if mom_10 > 0.05: score += 15
-            if mom_30 > 0.10: score += 15
-            if mom_60 > 0.20: score += 10
-            if vol_mom > 1.2: score += 10
+            if mom10 > 0.05: score += 10
+            if mom20 > 0.10: score += 15
+            if mom200 > 0.20: score += 15
+            if mom5 < -0.05: score -= 10 # Short term pullback penalty
 
-            # Penalize overbought momentum
-            if mom_10 > 0.20: score -= 10
-
-            metrics = {"momentum_score": max(0, min(score, 100))}
-            logger.info(f"[MOMENTUM] Final Score: {metrics['momentum_score']}")
+            metrics['momentum_score'] = min(max(score, 0), 100)
             return metrics
+
         except Exception as e:
             logger.error(f"[ERROR] Momentum Engine: {str(e)}")
             return {"momentum_score": 50}
