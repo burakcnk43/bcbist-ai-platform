@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .core.config import settings
 from .core.logger import logger
-from .api.routes import recommendations, market
+from .api.routes import recommendations, market, stocks, portfolio
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -24,18 +24,20 @@ app.add_middleware(
 # Include Routers
 app.include_router(recommendations.router, prefix=settings.API_STR)
 app.include_router(market.router, prefix=settings.API_STR)
+app.include_router(stocks.router, prefix=settings.API_STR)
+app.include_router(portfolio.router, prefix=settings.API_STR)
 
 @app.on_event("startup")
 async def startup_event():
-    logger.info("[STARTUP] BCBIST Backend is starting...")
+    logger.info("[STARTUP] BCBIST PRO Backend is starting...")
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    logger.info("[SHUTDOWN] BCBIST Backend is shutting down...")
+    logger.info("[SHUTDOWN] BCBIST PRO Backend is shutting down...")
 
 @app.get("/")
 async def root():
-    return {"message": "BCBIST API is running", "version": settings.VERSION}
+    return {"message": "BCBIST PRO API is running", "version": settings.VERSION}
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

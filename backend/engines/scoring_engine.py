@@ -9,92 +9,51 @@ class ScoringEngine:
         self.strategy_config = {
             "daily": {
                 "weights": {
-                    "technical_score": 0.35,
-                    "momentum_score": 0.25,
-                    "trend_score": 0.10,
-                    "liquidity_score": 0.10,
-                    "volatility_score": 0.10,
-                    "sector_score": 0.05,
-                    "risk_score": 0.05
-                },
-                "min_score": 75
-            },
-            "weekly": {
-                "weights": {
                     "technical_score": 0.25,
                     "momentum_score": 0.20,
-                    "trend_score": 0.15,
-                    "fundamental_score": 0.15,
-                    "risk_score": 0.10,
-                    "sector_score": 0.10,
-                    "liquidity_score": 0.05
+                    "trend_score": 0.10,
+                    "volatility_score": 0.05,
+                    "liquidity_score": 0.10,
+                    "fundamental_score": 0.05,
+                    "growth_score": 0.05,
+                    "value_score": 0.05,
+                    "risk_score": 0.05,
+                    "catalyst_score": 0.05,
+                    "sector_score": 0.05
                 },
-                "min_score": 72
-            },
-            "monthly": {
-                "weights": {
-                    "fundamental_score": 0.25,
-                    "trend_score": 0.20,
-                    "growth_score": 0.15,
-                    "value_score": 0.10,
-                    "technical_score": 0.10,
-                    "risk_score": 0.10,
-                    "sector_score": 0.10
+                "thresholds": {
+                    "min_ai_score": 80,
+                    "min_technical": 75,
+                    "min_confidence": 75
                 },
-                "min_score": 75
+                "fallback": {
+                    "min_ai_score": 75,
+                    "min_technical": 70,
+                    "min_confidence": 70
+                }
             },
             "long-term": {
                 "weights": {
-                    "fundamental_score": 0.35,
-                    "growth_score": 0.25,
+                    "fundamental_score": 0.30,
+                    "growth_score": 0.20,
                     "value_score": 0.15,
                     "dividend_score": 0.10,
-                    "risk_score": 0.10,
+                    "risk_score": 0.05,
+                    "technical_score": 0.05,
+                    "trend_score": 0.05,
+                    "catalyst_score": 0.05,
                     "sector_score": 0.05
                 },
-                "min_score": 80
-            },
-            "dividend": {
-                "weights": {
-                    "dividend_score": 0.55,
-                    "fundamental_score": 0.20,
-                    "value_score": 0.10,
-                    "risk_score": 0.10,
-                    "sector_score": 0.05
+                "thresholds": {
+                    "min_ai_score": 80,
+                    "min_fundamental": 75,
+                    "min_confidence": 75
                 },
-                "min_score": 78
-            },
-            "value": {
-                "weights": {
-                    "value_score": 0.45,
-                    "fundamental_score": 0.25,
-                    "dividend_score": 0.10,
-                    "risk_score": 0.10,
-                    "sector_score": 0.10
-                },
-                "min_score": 76
-            },
-            "high-growth": {
-                "weights": {
-                    "growth_score": 0.45,
-                    "momentum_score": 0.15,
-                    "fundamental_score": 0.15,
-                    "catalyst_score": 0.10,
-                    "technical_score": 0.10,
-                    "risk_score": 0.05
-                },
-                "min_score": 80
-            },
-            "high-risk": {
-                "weights": {
-                    "momentum_score": 0.35,
-                    "volatility_score": 0.25,
-                    "technical_score": 0.15,
-                    "catalyst_score": 0.10,
-                    "growth_score": 0.10,
-                    "risk_score": 0.05
-                },
-                "min_score": 70
+                "fallback": {
+                    "min_ai_score": 75,
+                    "min_fundamental": 70,
+                    "min_confidence": 70
+                }
             }
         }
 
@@ -108,8 +67,7 @@ class ScoringEngine:
             weight_sum = 0.0
 
             for key, weight in weights.items():
-                # Default to neutral 50 if a metric is missing
-                val = metrics.get(key, 50)
+                val = metrics.get(key, 50) # Default to neutral 50
                 total_weighted_score += float(val) * weight
                 weight_sum += weight
 
@@ -123,9 +81,22 @@ class ScoringEngine:
             logger.error(f"[SCORING ENGINE ERROR] {str(e)}")
             return 50
 
-    def is_eligible(self, score: int, strategy: str) -> bool:
-        """Enforces high-quality institutional thresholds."""
+    def check_eligibility(self, metrics: Dict[str, Any], strategy: str, mode: str = "strict") -> bool:
+        """Checks if the stock meets the strategy quality thresholds."""
         config = self.strategy_config.get(strategy, self.strategy_config["daily"])
-        return score >= config["min_score"]
+        thresholds = config["thresholds"] if mode == "strict" else config.get("fallback", config["thresholds"])
+
+        ai_score = metrics.get("ai_score", 0)
+        conf = metrics.get("confidence", 0)
+
+        if ai_score < thresholds.get("min_ai_score", 0): return False
+        if conf < thresholds.get("min_confidence", 0): return False
+
+        if strategy == "daily":
+            if metrics.get("technical_score", 0) < thresholds.get("min_technical", 0): return False
+        elif strategy == "long-term":
+            if metrics.get("fundamental_score", 0) < thresholds.get("min_fundamental", 0): return False
+
+        return True
 
 scoring_engine = ScoringEngine()
