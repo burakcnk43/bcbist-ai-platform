@@ -7,7 +7,7 @@ from .stock_service import stock_service
 from ..core.logger import logger
 from ..core.cache import get_cached, set_cached
 
-# Engine Imports
+# Institutional Engine Imports
 from ..engines.technical_engine import technical_engine
 from ..engines.fundamental_engine import fundamental_engine
 from ..engines.risk_engine import risk_engine
@@ -24,7 +24,7 @@ from ..engines.catalyst_engine import catalyst_engine
 from ..engines.scoring_engine import scoring_engine
 
 class RecommendationService:
-    """Professional Institutional-Grade Orchestrator for BIST Analysis."""
+    """Institutional-Grade Orchestrator for BIST V3 Analysis."""
 
     def _analyze_single_stock(self, symbol: str, strategy: str) -> Optional[Dict[str, Any]]:
         """Processes full analysis pipeline for one stock."""
@@ -33,7 +33,7 @@ class RecommendationService:
             if not data or data.history is None or data.history.empty:
                 return None
 
-            # 1. Component Metrics
+            # --- 1. Multi-Factor Metrics ---
             tech = technical_engine.calculate_metrics(data.history)
             fund = fundamental_engine.calculate_metrics(data.info, data.income_stmt, data.balance_sheet, data.cash_flow)
             risk = risk_engine.calculate_metrics(data.history, data.info)
@@ -47,21 +47,19 @@ class RecommendationService:
             liq = liquidity_engine.calculate_metrics(data.history)
             cat = catalyst_engine.calculate_metrics(data.info)
 
-            # 2. Independent Confidence Calculation
+            # --- 2. Score Aggregation ---
+            all_metrics = {**tech, **fund, **risk, **mom, **trend, **growth, **value, **div, **sec, **vol, **liq, **cat}
+            ai_score = scoring_engine.calculate_ai_score(all_metrics, strategy)
+
+            # --- 3. Independent Confidence ---
             conf = confidence_engine.calculate_confidence(tech, fund, risk, trend, data.info)
 
-            # 3. Score Aggregation
-            metrics_map = {
-                **tech, **fund, **risk, **mom, **trend, **growth, **value,
-                **div, **sec, **vol, **liq, **cat, "confidence": conf
-            }
-            ai_score = scoring_engine.calculate_ai_score(metrics_map, strategy)
-            metrics_map["ai_score"] = ai_score
+            metrics_final = {**all_metrics, "ai_score": ai_score, "confidence": conf}
 
             stock_meta = stock_registry.get_stock_data(symbol)
 
             return {
-                "metrics": metrics_map,
+                "metrics": metrics_final,
                 "item": RecommendationItem(
                     symbol=symbol,
                     company=stock_meta["name"],
@@ -69,16 +67,16 @@ class RecommendationService:
                     technical_score=int(tech.get("technical_score", 50)),
                     fundamental_score=int(fund.get("fundamental_score", 50)),
                     risk_score=int(risk.get("risk_score", 50)),
-                    recommendation_reason="", # Filled later
+                    recommendation_reason="", # Population later
                     confidence=conf
                 ),
                 "sector": stock_meta["sector"]
             }
-        except Exception as e:
+        except Exception:
             return None
 
     async def get_recommendations(self, strategy: str) -> RecommendationResponse:
-        """Executes parallel scan across all BIST stocks and ranks results with multi-stage fallbacks."""
+        """High-performance global market scanner with V3 filtering and ranking."""
         start_time = time.time()
 
         # Cache Check
@@ -87,82 +85,79 @@ class RecommendationService:
         if cached_res:
             return cached_res
 
+        logger.info(f"[SCAN START] Full BIST Scan V3: {strategy}")
+
         symbols = stock_registry.get_all_symbols()
-        total_count = len(symbols)
+        total_stocks = len(symbols)
 
-        raw_results = []
+        results_pool = []
 
-        # 1. Full Market Scanning (Parallel)
+        # Parallel Execution (40 Workers)
         with concurrent.futures.ThreadPoolExecutor(max_workers=40) as executor:
             futures = {executor.submit(self._analyze_single_stock, s, strategy): s for s in symbols}
             for future in concurrent.futures.as_completed(futures):
                 res = future.result()
-                if res: raw_results.append(res)
+                if res: results_pool.append(res)
 
-        analyzed_count = len(raw_results)
+        analyzed_count = len(results_pool)
 
-        # 2. Stage 1: Strict Filtering
-        stage1 = [r for r in raw_results if scoring_engine.check_eligibility(r["metrics"], strategy, mode="strict")]
+        # --- Stage 1: High Quality Filter ---
+        v3_candidates = [r for r in results_pool if scoring_engine.is_highly_eligible(r["metrics"], strategy)]
 
-        # 3. Stage 2: Fallback Filtering
-        if not stage1:
-            stage2 = [r for r in raw_results if scoring_engine.check_eligibility(r["metrics"], strategy, mode="fallback")]
-            selected_results = stage2
-            warning = "No stock met institutional thresholds today. High quality candidates are shown."
+        # --- Stage 2: Fallback (Zero Empty Responses) ---
+        if not v3_candidates:
+            # If nothing hits strict V3 thresholds, take the best available from the whole pool
+            results_pool.sort(key=lambda x: x["item"].ai_score, reverse=True)
+            v3_candidates = results_pool[:20] # Take top 20 to pick diverse ones
+            warning_msg = "Market criteria below institutional thresholds. Highest quality candidate selected."
         else:
-            selected_results = stage1
-            warning = None
+            warning_msg = None
 
-        # 4. Stage 3: Global Ranking (If still nothing, pick best of ALL)
-        if not selected_results:
-            raw_results.sort(key=lambda x: x["item"].ai_score, reverse=True)
-            selected_results = raw_results[:1] # Take at least the best one
-            warning = "Market conditions do not meet quality criteria. Showing best available candidate."
+        # --- Stage 3: Global Ranking ---
+        v3_candidates.sort(key=lambda x: x["item"].ai_score, reverse=True)
 
-        # 5. Global Ranking for Final Selection
-        selected_results.sort(key=lambda x: x["item"].ai_score, reverse=True)
-
-        # 6. Sector Diversity (Max 2 per sector)
-        final_recs = []
+        # --- Stage 4: Sector Diversity (Max 2) ---
+        final_list = []
         sector_counts = {}
-        for res in selected_results:
+        for res in v3_candidates:
             sect = res["sector"]
             if sector_counts.get(sect, 0) < 2:
                 item = res["item"]
-                item.recommendation_reason = warning if warning else self._generate_reason(strategy, item.ai_score, res["metrics"])
-                final_recs.append(item)
+                item.recommendation_reason = warning_msg if warning_msg else self._generate_reason(strategy, item.ai_score, res["metrics"])
+                final_list.append(item)
                 sector_counts[sect] = sector_counts.get(sect, 0) + 1
-            if len(final_recs) >= 10:
+            if len(final_list) >= 10:
                 break
 
         exec_time = time.time() - start_time
 
-        # BIST EXECUTION REPORT
-        logger.info(f"\n[BIST EXECUTION REPORT]\n"
-                    f"STOCKS SCANNED  : {total_count}\n"
-                    f"VALID/ANALYZED  : {analyzed_count}\n"
-                    f"FILTERED        : {len(selected_results)}\n"
-                    f"TOP SCORE       : {selected_results[0]['item'].ai_score if selected_results else 0}\n"
-                    f"RETURNED        : {len(final_recs)}\n"
-                    f"EXECUTION TIME  : {exec_time:.2f} sec\n"
-                    f"STRATEGY        : {strategy}")
-
         response = RecommendationResponse(
             strategy=strategy,
-            count=len(final_recs),
-            recommendations=final_recs
+            count=len(final_list),
+            recommendations=final_list
         )
 
         set_cached(cache_key, response, expire=1800)
+
+        # Institutional Execution Report
+        logger.info(f"\n[BIST EXECUTION REPORT V3]\n"
+                    f"STRATEGY        : {strategy}\n"
+                    f"STOCKS SCANNED  : {total_stocks}\n"
+                    f"VALID/ANALYZED  : {analyzed_count}\n"
+                    f"FILTERED (V3)   : {len(v3_candidates)}\n"
+                    f"TOP SCORE       : {v3_candidates[0]['item'].ai_score if v3_candidates else 0}\n"
+                    f"RETURNED        : {len(final_list)}\n"
+                    f"EXECUTION TIME  : {exec_time:.2f} sec")
+
         return response
 
     def _generate_reason(self, strategy: str, score: int, metrics: dict) -> str:
-        """Dynamic institutional rationale generation."""
-        if score > 88: return "Exceptional multi-factor convergence with high institutional conviction."
+        """Dynamic institutional rationale."""
+        if score > 88: return "Exceptional multi-factor alignment with high institutional conviction."
         if strategy == "daily" and metrics.get("technical_score", 0) > 80:
-            return "Strong bullish momentum confirmed by institutional trend indicators."
+            return "Powerful bullish momentum confirmed by institutional indicators."
         if strategy == "long-term" and metrics.get("fundamental_score", 0) > 80:
-            return "Premium quality balance sheet with significant intrinsic value gap."
-        return "High-probability signal derived from synchronized market factors."
+            return "Premium fundamental quality with robust growth stability."
+        return "High-probability signal derived from synchronized market data."
 
 recommendation_service = RecommendationService()

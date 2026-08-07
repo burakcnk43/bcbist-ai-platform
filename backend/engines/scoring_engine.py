@@ -2,14 +2,14 @@ from typing import Dict, Any
 from ..core.logger import logger
 
 class ScoringEngine:
-    """Professional Multi-Factor Weighted Scoring Engine with Institutional Configuration."""
+    """Professional Multi-Factor Weighted Scoring Engine with V3 Thresholds."""
 
     def __init__(self):
-        # Comprehensive Strategy Configuration
+        # Institutional Strategy Weights and Minimum Thresholds (V3)
         self.strategy_config = {
             "daily": {
                 "weights": {
-                    "technical_score": 0.25,
+                    "technical_score": 0.30,
                     "momentum_score": 0.20,
                     "trend_score": 0.10,
                     "volatility_score": 0.05,
@@ -25,16 +25,11 @@ class ScoringEngine:
                     "min_ai_score": 80,
                     "min_technical": 75,
                     "min_confidence": 75
-                },
-                "fallback": {
-                    "min_ai_score": 75,
-                    "min_technical": 70,
-                    "min_confidence": 70
                 }
             },
             "long-term": {
                 "weights": {
-                    "fundamental_score": 0.30,
+                    "fundamental_score": 0.35,
                     "growth_score": 0.20,
                     "value_score": 0.15,
                     "dividend_score": 0.10,
@@ -45,14 +40,9 @@ class ScoringEngine:
                     "sector_score": 0.05
                 },
                 "thresholds": {
-                    "min_ai_score": 80,
+                    "min_ai_score": 82,
                     "min_fundamental": 75,
-                    "min_confidence": 75
-                },
-                "fallback": {
-                    "min_ai_score": 75,
-                    "min_fundamental": 70,
-                    "min_confidence": 70
+                    "min_confidence": 80
                 }
             }
         }
@@ -67,7 +57,7 @@ class ScoringEngine:
             weight_sum = 0.0
 
             for key, weight in weights.items():
-                val = metrics.get(key, 50) # Default to neutral 50
+                val = metrics.get(key, 50)
                 total_weighted_score += float(val) * weight
                 weight_sum += weight
 
@@ -81,21 +71,18 @@ class ScoringEngine:
             logger.error(f"[SCORING ENGINE ERROR] {str(e)}")
             return 50
 
-    def check_eligibility(self, metrics: Dict[str, Any], strategy: str, mode: str = "strict") -> bool:
-        """Checks if the stock meets the strategy quality thresholds."""
+    def is_highly_eligible(self, metrics: Dict[str, Any], strategy: str) -> bool:
+        """Strict V3 quality check."""
         config = self.strategy_config.get(strategy, self.strategy_config["daily"])
-        thresholds = config["thresholds"] if mode == "strict" else config.get("fallback", config["thresholds"])
+        thresh = config["thresholds"]
 
-        ai_score = metrics.get("ai_score", 0)
-        conf = metrics.get("confidence", 0)
-
-        if ai_score < thresholds.get("min_ai_score", 0): return False
-        if conf < thresholds.get("min_confidence", 0): return False
+        if metrics.get("ai_score", 0) < thresh["min_ai_score"]: return False
+        if metrics.get("confidence", 0) < thresh["min_confidence"]: return False
 
         if strategy == "daily":
-            if metrics.get("technical_score", 0) < thresholds.get("min_technical", 0): return False
+            if metrics.get("technical_score", 0) < thresh["min_technical"]: return False
         elif strategy == "long-term":
-            if metrics.get("fundamental_score", 0) < thresholds.get("min_fundamental", 0): return False
+            if metrics.get("fundamental_score", 0) < thresh["min_fundamental"]: return False
 
         return True
 

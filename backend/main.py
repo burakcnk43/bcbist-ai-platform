@@ -7,7 +7,7 @@ from .api.routes import recommendations, market, stocks, portfolio
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    version=settings.VERSION,
+    version="3.0.0", # V3
     openapi_url=f"{settings.API_STR}/openapi.json",
     docs_url="/docs"
 )
@@ -21,7 +21,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include Routers
+# Include Routers (Consolidated V3)
 app.include_router(recommendations.router, prefix=settings.API_STR)
 app.include_router(market.router, prefix=settings.API_STR)
 app.include_router(stocks.router, prefix=settings.API_STR)
@@ -29,15 +29,15 @@ app.include_router(portfolio.router, prefix=settings.API_STR)
 
 @app.on_event("startup")
 async def startup_event():
-    logger.info("[STARTUP] BCBIST PRO Backend is starting...")
+    logger.info("[STARTUP] BCBIST V3 PRO is starting...")
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    logger.info("[SHUTDOWN] BCBIST PRO Backend is shutting down...")
+    logger.info("[SHUTDOWN] BCBIST V3 PRO is shutting down...")
 
 @app.get("/")
 async def root():
-    return {"message": "BCBIST PRO API is running", "version": settings.VERSION}
+    return {"message": "BCBIST V3 PRO API is active", "version": "3.0.0"}
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

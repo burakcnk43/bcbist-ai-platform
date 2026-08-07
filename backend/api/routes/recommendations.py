@@ -6,10 +6,10 @@ router = APIRouter(prefix="/recommendations", tags=["Recommendations"])
 
 @router.get("/daily", response_model=RecommendationResponse)
 async def get_daily_recommendations():
-    """Returns top quality daily stock recommendations based on multi-factor AI analysis."""
+    """Returns top 10 highest-quality daily stock recommendations."""
     return await recommendation_service.get_recommendations("daily")
 
 @router.get("/long-term", response_model=RecommendationResponse)
 async def get_long_term_recommendations():
-    """Returns top quality long-term investment picks based on fundamental and growth AI analysis."""
+    """Returns top 10 highest-quality long-term investment picks."""
     return await recommendation_service.get_recommendations("long-term")

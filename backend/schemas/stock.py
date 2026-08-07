@@ -6,6 +6,7 @@ class StockInfo(BaseModel):
     name: str
     sector: Optional[str] = None
     industry: Optional[str] = None
+    ai_score: Optional[int] = None
 
 class StockData(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
