@@ -24,16 +24,16 @@ from ..engines.catalyst_engine import catalyst_engine
 from ..engines.scoring_engine import scoring_engine
 
 class RecommendationService:
-    """Institutional-Grade Orchestrator for BIST Analysis."""
+    """Professional Institutional-Grade Orchestrator for BIST Analysis."""
 
     def _analyze_single_stock(self, symbol: str, strategy: str) -> Optional[Dict[str, Any]]:
-        """Processes full analysis pipeline for one stock."""
+        """Processes full analysis pipeline for one stock with strict quality checks."""
         try:
             data = stock_service.analyze_stock(symbol)
             if not data or data.history is None or data.history.empty:
                 return None
 
-            # --- 1. Factor Calculation ---
+            # --- 1. Comprehensive Factor Calculation ---
             tech = technical_engine.calculate_metrics(data.history)
             fund = fundamental_engine.calculate_metrics(data.info, data.income_stmt, data.balance_sheet, data.cash_flow)
             risk = risk_engine.calculate_metrics(data.history, data.info)
@@ -47,16 +47,28 @@ class RecommendationService:
             liq = liquidity_engine.calculate_metrics(data.history)
             cat = catalyst_engine.calculate_metrics(data.info)
 
-            # --- 2. Score Aggregation ---
+            # --- 2. Multi-Factor Score Aggregation ---
             all_metrics = {**tech, **fund, **risk, **mom, **trend, **growth, **value, **div, **sec, **vol, **liq, **cat}
             ai_score = scoring_engine.calculate_ai_score(all_metrics, strategy)
 
-            # --- 3. Filtering & Eligibility ---
+            # --- 3. Independent Confidence Assessment ---
+            conf = confidence_engine.calculate_confidence(tech, fund, risk)
+
+            # --- 4. Strict Quality Enforcements (Strategy Specific) ---
             if not scoring_engine.is_eligible(ai_score, strategy):
                 return None
 
-            # --- 4. Reliability Assessment ---
-            conf = confidence_engine.calculate_confidence(tech, fund, risk)
+            # Daily Quality Rules (Rule: min Confidence 70, min Tech 70, min Liquidity 50)
+            if strategy == "daily":
+                if conf < 70 or tech.get("technical_score", 0) < 70 or liq.get("liquidity_score", 0) < 50:
+                    return None
+                if trend.get("trend_score", 0) < 50: # Must be neutral/positive trend
+                    return None
+
+            # Long Term Quality (Rule: min Fund 70, min Growth 60)
+            if strategy == "long-term":
+                if fund.get("fundamental_score", 0) < 70 or growth.get("growth_score", 0) < 60:
+                    return None
 
             stock_meta = stock_registry.get_stock_data(symbol)
 
@@ -77,17 +89,16 @@ class RecommendationService:
             return None
 
     async def get_recommendations(self, strategy: str) -> RecommendationResponse:
-        """High-performance scanner with caching and global ranking."""
+        """High-performance global market scanner with ranking and diversity."""
         start_time = time.time()
 
         # --- Cache Check ---
-        cache_key = f"final_recs_{strategy}"
+        cache_key = f"v2_final_recs_{strategy}"
         cached_res = get_cached(cache_key)
         if cached_res:
-            logger.info(f"[CACHE HIT] Strategy: {strategy}")
             return cached_res
 
-        logger.info(f"[SCAN START] Strategy: {strategy}")
+        logger.info(f"[SCAN START] Full Market Scan: {strategy}")
 
         symbols = stock_registry.get_all_symbols()
         total_stocks = len(symbols)
@@ -95,7 +106,7 @@ class RecommendationService:
         results = []
         failed_count = 0
 
-        # --- Parallel Execution ---
+        # --- Parallel Market Scanning (Institutional Scale) ---
         with concurrent.futures.ThreadPoolExecutor(max_workers=40) as executor:
             futures = {executor.submit(self._analyze_single_stock, s, strategy): s for s in symbols}
             for future in concurrent.futures.as_completed(futures):
@@ -105,11 +116,12 @@ class RecommendationService:
                 else:
                     failed_count += 1
 
-        # --- Global Ranking ---
+        # --- Global Quality Ranking ---
+        # Ensure we sort by AI Score descending across ALL analyzed stocks
         results.sort(key=lambda x: x["rec"].ai_score, reverse=True)
         valid_stocks = len(results)
 
-        # --- Sector Diversity (Max 2 per sector) ---
+        # --- Sector Diversification Logic (Max 2 per sector) ---
         final_list = []
         sector_counts = {}
         for item in results:
@@ -128,32 +140,30 @@ class RecommendationService:
             recommendations=final_list
         )
 
-        # --- Result Caching ---
+        # Cache results to prevent redundant processing
         set_cached(cache_key, response, expire=1800)
 
-        # --- Production Logging ---
-        logger.info(f"\n[BIST ALL EXECUTION REPORT]\n"
-                    f"SCAN START       : {strategy}\n"
-                    f"TOTAL STOCKS     : {total_stocks}\n"
-                    f"VALID STOCKS     : {valid_stocks}\n"
-                    f"FAILED STOCKS    : {failed_count}\n"
-                    f"FILTERED         : {total_stocks - valid_stocks}\n"
-                    f"RANKED           : {valid_stocks}\n"
-                    f"TOP 10 GENERATED : {len(final_list)}\n"
-                    f"TOTAL TIME       : {exec_time:.2f} sec")
+        # Detailed Production Log
+        logger.info(f"\n[BIST ALL PRODUCTION REPORT]\n"
+                    f"STRATEGY         : {strategy}\n"
+                    f"TOTAL MARKET     : {total_stocks}\n"
+                    f"ANALYZED/VALID   : {valid_stocks}\n"
+                    f"FAILED/FILTERED  : {total_stocks - valid_stocks}\n"
+                    f"TOP 10 DIVERSE   : {len(final_list)}\n"
+                    f"EXECUTION TIME   : {exec_time:.2f} sec")
 
         return response
 
     def _generate_reason(self, strategy: str, score: int, tech: dict, fund: dict, div: dict) -> str:
-        """Dynamic institutional-grade reason generation."""
+        """Generates dynamic investment rationales based on factor convergence."""
         if score > 90:
-            return "Exceptional multi-factor convergence with high institutional quality."
-        if strategy == "dividend" and div.get("dividend_score", 0) > 80:
-            return "Prime dividend yield with robust payout sustainability."
+            return "Exceptional multi-factor convergence with top-tier institutional metrics."
+        if strategy == "dividend" and div.get("dividend_score", 0) > 85:
+            return "Leading dividend yield profile with elite payout sustainability."
         if tech.get("technical_score", 0) > 85:
-            return "Powerful momentum and trend breakout confirmation."
+            return "Strong bullish momentum confirmed by institutional trend indicators."
         if fund.get("fundamental_score", 0) > 85:
-            return "Outstanding balance sheet strength and value discount."
-        return "High-quality signal based on harmonized technical and fundamental data."
+            return "Premium balance sheet quality with significant intrinsic value gap."
+        return "High-probability signal derived from synchronized market factors."
 
 recommendation_service = RecommendationService()
