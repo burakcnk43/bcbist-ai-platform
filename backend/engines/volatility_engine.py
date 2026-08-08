@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, Any
-from core.logger import logger
+from backend.core.logger import logger
 
 class VolatilityEngine:
     """Institutional Volatility Rank Engine (V4)."""

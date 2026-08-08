@@ -1,6 +1,6 @@
 from typing import Dict, Any
 import numpy as np
-from core.logger import logger
+from backend.core.logger import logger
 
 class GrowthEngine:
     """Institutional Grade Growth Analysis Engine (V4)."""

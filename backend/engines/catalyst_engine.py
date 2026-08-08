@@ -1,6 +1,6 @@
 from typing import Dict, Any
 import numpy as np
-from core.logger import logger
+from backend.core.logger import logger
 
 class CatalystEngine:
     """Forward-looking Catalyst and Sentiment Engine (V4)."""

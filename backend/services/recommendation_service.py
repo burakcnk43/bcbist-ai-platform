@@ -1,21 +1,23 @@
 import time
 import concurrent.futures
 from typing import List, Dict, Any, Optional
-from schemas.recommendation import RecommendationResponse, RecommendationItem
-from services.stock_registry import stock_registry
-from services.stock_service import stock_service
-from core.logger import logger
-from core.cache import get_cached, set_cached
+
+# Absolute Package Imports for Production Stability
+from backend.schemas.recommendation import RecommendationResponse, RecommendationItem
+from backend.services.stock_registry import stock_registry
+from backend.services.stock_service import stock_service
+from backend.core.logger import logger
+from backend.core.cache import get_cached, set_cached
 
 # Engine Imports
-from engines.technical_engine import technical_engine
-from engines.fundamental_engine import fundamental_engine
-from engines.risk_engine import risk_engine
-from engines.momentum_engine import momentum_engine
-from engines.trend_engine import trend_engine
-from engines.scoring_engine import scoring_engine
-from engines.confidence_engine import confidence_engine
-from engines.volatility_engine import volatility_engine
+from backend.engines.technical_engine import technical_engine
+from backend.engines.fundamental_engine import fundamental_engine
+from backend.engines.risk_engine import risk_engine
+from backend.engines.momentum_engine import momentum_engine
+from backend.engines.trend_engine import trend_engine
+from backend.engines.scoring_engine import scoring_engine
+from backend.engines.confidence_engine import confidence_engine
+from backend.engines.volatility_engine import volatility_engine
 
 class RecommendationService:
     """Institutional-Grade Orchestrator for Full BIST V4 Scan."""

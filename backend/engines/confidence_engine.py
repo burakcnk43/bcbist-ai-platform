@@ -1,6 +1,6 @@
 from typing import Dict, Any
 import numpy as np
-from core.logger import logger
+from backend.core.logger import logger
 
 class ConfidenceEngine:
     """Institutional Grade Data Integrity & Signal Harmony Engine (V4)."""

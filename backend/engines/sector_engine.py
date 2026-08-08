@@ -1,5 +1,5 @@
 from typing import Dict, Any
-from core.logger import logger
+from backend.core.logger import logger
 
 class SectorEngine:
     """Institutional Sector Comparative Analysis Engine (V4)."""

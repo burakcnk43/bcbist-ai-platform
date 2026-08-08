@@ -2,7 +2,9 @@ import pandas as pd
 import numpy as np
 import ta
 from typing import Dict, Any
-from core.logger import logger
+
+# Absolute Package Imports
+from backend.core.logger import logger
 
 class TechnicalEngine:
     """Institutional Grade Technical Analysis Engine with 40+ indicators (V4)."""

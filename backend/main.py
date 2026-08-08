@@ -1,9 +1,11 @@
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .core.config import settings
-from .core.logger import logger
-from .api.routes import recommendations, market, stocks, portfolio
+
+# Absolute Package Imports
+from backend.core.config import settings
+from backend.core.logger import logger
+from backend.api.routes import recommendations, market, stocks, portfolio
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -40,4 +42,4 @@ async def root():
     return {"message": "BCBIST V3 PRO API is active", "version": "3.0.0"}
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)

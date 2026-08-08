@@ -1,6 +1,8 @@
 from typing import Dict, Any
 import numpy as np
-from core.logger import logger
+
+# Absolute Package Imports
+from backend.core.logger import logger
 
 class FundamentalEngine:
     """Institutional Grade Fundamental Analysis Engine with NaN-safe logic (V4)."""

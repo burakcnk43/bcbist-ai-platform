@@ -2,26 +2,28 @@ import time
 import unicodedata
 from fastapi import APIRouter, HTTPException
 from typing import List, Dict, Any
-from services.stock_registry import stock_registry
-from services.stock_service import stock_service
-from schemas.stock import StockInfo
-from core.cache import get_cached, set_cached
+
+# Absolute Package Imports
+from backend.services.stock_registry import stock_registry
+from backend.services.stock_service import stock_service
+from backend.schemas.stock import StockInfo
+from backend.core.cache import get_cached, set_cached
 
 # Engine Imports
-from engines.technical_engine import technical_engine
-from engines.fundamental_engine import fundamental_engine
-from engines.risk_engine import risk_engine
-from engines.momentum_engine import momentum_engine
-from engines.trend_engine import trend_engine
-from engines.growth_engine import growth_engine
-from engines.value_engine import value_engine
-from engines.dividend_engine import dividend_engine
-from engines.sector_engine import sector_engine
-from engines.volatility_engine import volatility_engine
-from engines.liquidity_engine import liquidity_engine
-from engines.confidence_engine import confidence_engine
-from engines.catalyst_engine import catalyst_engine
-from engines.scoring_engine import scoring_engine
+from backend.engines.technical_engine import technical_engine
+from backend.engines.fundamental_engine import fundamental_engine
+from backend.engines.risk_engine import risk_engine
+from backend.engines.momentum_engine import momentum_engine
+from backend.engines.trend_engine import trend_engine
+from backend.engines.growth_engine import growth_engine
+from backend.engines.value_engine import value_engine
+from backend.engines.dividend_engine import dividend_engine
+from backend.engines.sector_engine import sector_engine
+from backend.engines.volatility_engine import volatility_engine
+from backend.engines.liquidity_engine import liquidity_engine
+from backend.engines.confidence_engine import confidence_engine
+from backend.engines.catalyst_engine import catalyst_engine
+from backend.engines.scoring_engine import scoring_engine
 
 router = APIRouter(prefix="/stocks", tags=["Stocks"])
 

@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 import yfinance as yf
 from datetime import datetime, timedelta, timezone
-from core.cache import get_cached, set_cached
+from backend.core.cache import get_cached, set_cached
 
 router = APIRouter(prefix="/market", tags=["Market"])
 

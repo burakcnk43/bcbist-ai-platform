@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from typing import Dict, Any
-from core.logger import logger
+from backend.core.logger import logger
 
 class RiskEngine:
     """Institutional Risk Analysis Engine with V4 Robustness."""

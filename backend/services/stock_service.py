@@ -1,9 +1,11 @@
 import yfinance as yf
 import pandas as pd
 from typing import Optional
-from core.logger import logger
-from core.cache import get_cached, set_cached
-from schemas.stock import StockData
+
+# Absolute Package Imports
+from backend.core.logger import logger
+from backend.core.cache import get_cached, set_cached
+from backend.schemas.stock import StockData
 
 class StockService:
     """Professional Data Fetching Service (V4) with error shielding and Pydantic safety."""
