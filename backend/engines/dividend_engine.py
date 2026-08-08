@@ -1,43 +1,34 @@
 from typing import Dict, Any
-from ..core.logger import logger
+import numpy as np
+from core.logger import logger
 
 class DividendEngine:
-    """Institutional Grade Dividend Analysis Engine."""
+    """Institutional Grade Dividend Analysis Engine (V4)."""
 
     def calculate_metrics(self, info: Dict) -> Dict[str, Any]:
-        """Analyzes yield, payout stability, and growth history."""
         try:
-            yield_val = info.get('dividendYield', 0) or 0
-            payout = info.get('payoutRatio', 0) or 0
-            div_rate = info.get('dividendRate', 0) or 0
-            five_yr_avg = info.get('fiveYearAvgDividendYield', 0) or 0
+            def safe_f(val):
+                try:
+                    if val is None: return None
+                    f = float(val)
+                    return f if not np.isnan(f) and not np.isinf(f) else None
+                except: return None
 
-            # --- Dividend Score (0-100) ---
+            yield_val = safe_f(info.get('dividendYield'))
+            payout = safe_f(info.get('payoutRatio'))
+
             score = 0
+            if yield_val:
+                if yield_val > 0.05: score = 100
+                elif yield_val > 0.02: score = 70
+                else: score = 40
 
-            # 1. Yield Quality (Max 50 pts)
-            if yield_val > 0.08: score += 50
-            elif yield_val > 0.05: score += 40
-            elif yield_val > 0.03: score += 25
-
-            # 2. Payout Sustainability (Max 30 pts)
-            # Target range 20% - 70% is ideal for BIST companies
-            if 0.15 < payout < 0.65: score += 30
-            elif payout < 0.90: score += 15
-
-            # 3. Growth & Stability (Max 20 pts)
-            if yield_val > five_yr_avg: score += 10
-            if div_rate > 0: score += 10
-
-            metrics = {
+            return {
                 "dividend_yield": yield_val,
                 "payout_ratio": payout,
-                "dividend_score": int(min(max(score, 0), 100))
+                "dividend_score": score if yield_val is not None else None
             }
-            return metrics
-
-        except Exception as e:
-            logger.error(f"[DIVIDEND ENGINE ERROR] {str(e)}")
-            return {"dividend_score": 0}
+        except Exception:
+            return {"dividend_score": None}
 
 dividend_engine = DividendEngine()

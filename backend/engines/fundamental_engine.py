@@ -1,87 +1,80 @@
 from typing import Dict, Any
 import numpy as np
-from ..core.logger import logger
+from core.logger import logger
 
 class FundamentalEngine:
-    """Institutional Grade Fundamental Analysis Engine with NaN-safe logic."""
+    """Institutional Grade Fundamental Analysis Engine with NaN-safe logic (V4)."""
 
     def calculate_metrics(self, info: Dict, income: Dict, balance: Dict, cash: Dict) -> Dict[str, Any]:
-        """Calculates professional financial ratios with robust error handling."""
+        """Calculates professional financial ratios with absolute crash protection."""
         metrics = {}
         try:
-            def safe_float(val, default=0.0):
+            def safe_f(val, default=None):
                 try:
-                    if val is None or (isinstance(val, float) and np.isnan(val)):
-                        return default
-                    return float(val)
+                    if val is None: return default
+                    f_val = float(val)
+                    return f_val if not np.isnan(f_val) and not np.isinf(f_val) else default
                 except (ValueError, TypeError):
                     return default
 
             # --- 1. Key Extraction ---
-            pe = safe_float(info.get('trailingPE', info.get('forwardPE')))
-            pb = safe_float(info.get('priceToBook'))
-            ps = safe_float(info.get('priceToSalesTrailing12Months'))
-            ev_ebitda = safe_float(info.get('enterpriseToEbitda'))
+            metrics['pe_ratio'] = safe_f(info.get('trailingPE', info.get('forwardPE')))
+            metrics['pb_ratio'] = safe_f(info.get('priceToBook'))
+            metrics['ps_ratio'] = safe_f(info.get('priceToSalesTrailing12Months'))
+            metrics['ev_ebitda'] = safe_f(info.get('enterpriseToEbitda'))
 
-            roe = safe_float(info.get('returnOnEquity'))
-            roa = safe_float(info.get('returnOnAssets'))
-            roic = safe_float(info.get('returnOnCapital'))
+            metrics['roe'] = safe_f(info.get('returnOnEquity'))
+            metrics['roa'] = safe_f(info.get('returnOnAssets'))
+            metrics['roic'] = safe_f(info.get('returnOnCapital'))
 
-            curr_ratio = safe_float(info.get('currentRatio'))
-            quick_ratio = safe_float(info.get('quickRatio')) # Acid Test
-            debt_eq = safe_float(info.get('debtToEquity'))
+            metrics['current_ratio'] = safe_f(info.get('currentRatio'))
+            metrics['quick_ratio'] = safe_f(info.get('quickRatio'))
+            metrics['debt_equity'] = safe_f(info.get('debtToEquity'))
 
-            rev_growth = safe_float(info.get('revenueGrowth'))
-            eps_growth = safe_float(info.get('earningsGrowth', 0.05))
+            metrics['revenue_growth'] = safe_f(info.get('revenueGrowth'))
+            metrics['eps_growth'] = safe_f(info.get('earningsGrowth'))
 
-            metrics.update({
-                'pe_ratio': pe, 'pb_ratio': pb, 'ps_ratio': ps, 'ev_ebitda': ev_ebitda,
-                'roe': roe, 'roa': roa, 'roic': roic,
-                'current_ratio': curr_ratio, 'quick_ratio': quick_ratio, 'debt_equity': debt_eq,
-                'revenue_growth': rev_growth, 'eps_growth': eps_growth
-            })
-
-            # --- 2. Piotroski F-Score (9 points check proxy) ---
+            # --- 2. Piotroski F-Score Proxy ---
             f_score = 0
-            # Profitability
-            if safe_float(info.get('netIncomeToCommon')) > 0: f_score += 1
-            if roa > 0: f_score += 1
-            if safe_float(info.get('operatingCashflow')) > 0: f_score += 1
-            if safe_float(info.get('operatingCashflow')) > safe_float(info.get('netIncomeToCommon')): f_score += 1
-            # Health/Liquidity
-            if debt_eq < 100: f_score += 1
-            if curr_ratio > 1.2: f_score += 1
-            if info.get('sharesOutstanding') == info.get('impliedSharesOutstanding'): f_score += 1 # Dilution check proxy
+            found_f = 0
+            if safe_f(info.get('netIncomeToCommon')) is not None:
+                if safe_f(info.get('netIncomeToCommon')) > 0: f_score += 1
+                found_f += 1
+            if metrics['roa'] is not None:
+                if metrics['roa'] > 0: f_score += 1
+                found_f += 1
+            if safe_f(info.get('operatingCashflow')) is not None:
+                if safe_f(info.get('operatingCashflow')) > 0: f_score += 1
+                found_f += 1
 
-            metrics['piotroski_score'] = f_score
+            metrics['piotroski_score'] = f_score if found_f > 0 else None
 
-            # --- 3. Altman Z-Score Proxy ---
-            # Using current ratio and roa as stability proxies
-            metrics['altman_z'] = (1.2 * curr_ratio) + (3.3 * roa)
-
-            # --- 4. Graham Intrinsic Value & Number ---
-            eps = safe_float(info.get('trailingEps'))
-            if eps > 0:
-                growth_val = eps_growth * 100
-                metrics['graham_value'] = (eps * (8.5 + 2 * growth_val) * 4.4) / 4.5
-                metrics['graham_number'] = np.sqrt(22.5 * eps * safe_float(info.get('bookValue')))
+            # --- 3. Graham Value ---
+            eps = safe_f(info.get('trailingEps'))
+            book = safe_f(info.get('bookValue'))
+            if eps and eps > 0 and book and book > 0:
+                metrics['graham_number'] = float(np.sqrt(22.5 * eps * book))
             else:
-                metrics['graham_value'] = 0
-                metrics['graham_number'] = 0
+                metrics['graham_number'] = None
 
-            # --- 5. Fundamental Score Calculation ---
-            score = 50
-            if 0 < pe < 15: score += 10
-            if roe > 0.18: score += 10
-            if f_score >= 4: score += 15
-            if rev_growth > 0.12: score += 10
-            if debt_eq < 80: score += 5
+            # --- 4. Fundamental Score Calculation ---
+            score_parts = []
+            if metrics['pe_ratio']:
+                score_parts.append(100 if metrics['pe_ratio'] < 20 else 0)
+            if metrics['roe']:
+                score_parts.append(100 if metrics['roe'] > 0.15 else 0)
+            if metrics['debt_equity']:
+                score_parts.append(100 if metrics['debt_equity'] < 100 else 0)
 
-            metrics['fundamental_score'] = int(min(max(score, 0), 100))
+            if score_parts:
+                metrics['fundamental_score'] = int(sum(score_parts) / len(score_parts))
+            else:
+                metrics['fundamental_score'] = None
+
             return metrics
 
         except Exception as e:
             logger.error(f"[FUNDAMENTAL ENGINE ERROR] {str(e)}")
-            return {"fundamental_score": 50}
+            return {"fundamental_score": None}
 
 fundamental_engine = FundamentalEngine()

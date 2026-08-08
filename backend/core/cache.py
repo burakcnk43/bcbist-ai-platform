@@ -1,7 +1,7 @@
 import diskcache
 import os
-from .config import settings
-from .logger import logger
+from core.config import settings
+from core.logger import logger
 
 # Ensure cache directory exists
 os.makedirs(settings.CACHE_DIR, exist_ok=True)

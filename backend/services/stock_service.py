@@ -1,37 +1,42 @@
 import yfinance as yf
 import pandas as pd
 from typing import Optional
-from ..core.logger import logger
-from ..core.cache import get_cached, set_cached
-from ..schemas.stock import StockData
+from core.logger import logger
+from core.cache import get_cached, set_cached
+from schemas.stock import StockData
 
 class StockService:
-    """Professional Data Fetching Service with robust error handling and caching."""
+    """Professional Data Fetching Service (V4) with error shielding and Pydantic safety."""
 
     def analyze_stock(self, symbol: str) -> Optional[StockData]:
-        """Fetches comprehensive stock data with local caching."""
-        cache_key = f"stock_full_v3_{symbol}"
+        """Fetches comprehensive stock data with local caching and stringified keys for Pydantic."""
+        cache_key = f"stock_data_v4_{symbol}"
         cached = get_cached(cache_key)
-        if cached is not None:
-            return cached
+        if cached is not None: return cached
 
         try:
-            full_symbol = f"{symbol}.IS"
+            full_symbol = f"{symbol}.IS" if not symbol.endswith(".IS") else symbol
             ticker = yf.Ticker(full_symbol)
 
-            # --- 1. Price History ---
-            # Using 2 years for trend and risk calculations
+            # Price History
             history = ticker.history(period="2y", auto_adjust=True)
-            if history.empty:
-                logger.warning(f"[STOCK SERVICE] No history found for {symbol}")
+            if history is None or history.empty:
+                logger.warning(f"[V4] No history for {symbol}")
                 return None
 
-            # --- 2. Financials ---
-            # Fetching quarterly data for growth and stability analysis
+            # Financials (Safe extraction with string keys)
             info = ticker.info or {}
-            income = ticker.quarterly_income_stmt.to_dict() if not ticker.quarterly_income_stmt.empty else {}
-            balance = ticker.quarterly_balance_sheet.to_dict() if not ticker.quarterly_balance_sheet.empty else {}
-            cash = ticker.quarterly_cashflow.to_dict() if not ticker.quarterly_cashflow.empty else {}
+
+            def safe_stmt(df):
+                if df is None or df.empty: return {}
+                # Convert columns (Timestamps) to strings to satisfy Pydantic/JSON
+                df_copy = df.copy()
+                df_copy.columns = [str(c) for c in df_copy.columns]
+                return df_copy.to_dict()
+
+            income = safe_stmt(ticker.quarterly_income_stmt)
+            balance = safe_stmt(ticker.quarterly_balance_sheet)
+            cash = safe_stmt(ticker.quarterly_cashflow)
 
             stock_data = StockData(
                 symbol=symbol,
@@ -42,12 +47,11 @@ class StockService:
                 cash_flow=cash
             )
 
-            # Store in diskcache for 30 minutes
             set_cached(cache_key, stock_data, expire=1800)
             return stock_data
 
         except Exception as e:
-            logger.error(f"[STOCK SERVICE ERROR] Failed to fetch {symbol}: {str(e)}")
+            logger.error(f"[V4 STOCK SERVICE ERROR] {symbol}: {str(e)}")
             return None
 
 stock_service = StockService()

@@ -1,45 +1,33 @@
 import pandas as pd
+import numpy as np
 from typing import Dict, Any
-from ..core.logger import logger
+from core.logger import logger
 
 class LiquidityEngine:
-    """Institutional Liquidity Risk and Turnover Engine."""
+    """Institutional Liquidity Risk Engine (V4)."""
 
     def calculate_metrics(self, history: pd.DataFrame) -> Dict[str, Any]:
-        """Calculates liquidity score based on volume stability and depth."""
         if history is None or history.empty:
-            return {"liquidity_score": 50}
+            return {"liquidity_score": None}
 
         try:
             volume = history['Volume']
             close = history['Close']
 
-            # TRY Volume (Value traded)
-            try_vol = (volume * close).tail(20).mean()
+            # Daily Volume in TL (Approx)
+            avg_volume_tl = (volume * close).tail(20).mean()
 
-            # Volume Stability (Std of volume)
-            vol_std = volume.tail(20).std() / volume.tail(20).mean()
+            score = 50
+            if avg_volume_tl > 100_000_000: score = 95
+            elif avg_volume_tl > 20_000_000: score = 80
+            elif avg_volume_tl > 5_000_000: score = 60
+            else: score = 30
 
-            # --- Liquidity Score (0-100) ---
-            # Thresholds based on BIST daily value traded (TL)
-            score = 0
-            if try_vol > 500_000_000: score = 95    # Blue chip liquidity
-            elif try_vol > 100_000_000: score = 85  # High liquidity
-            elif try_vol > 20_000_000: score = 70   # Moderate liquidity
-            elif try_vol > 5_000_000: score = 50    # Low liquidity
-            else: score = 25                        # Illiquid
-
-            # Penalty for erratic volume (Max 15 pts)
-            if vol_std > 1.5: score -= 15
-
-            metrics = {
-                "daily_value_traded": float(try_vol),
-                "liquidity_score": int(min(max(score, 0), 100))
+            return {
+                "avg_daily_volume_tl": float(avg_volume_tl) if not np.isnan(avg_volume_tl) else None,
+                "liquidity_score": score
             }
-            return metrics
-
-        except Exception as e:
-            logger.error(f"[LIQUIDITY ENGINE ERROR] {str(e)}")
-            return {"liquidity_score": 50}
+        except Exception:
+            return {"liquidity_score": None}
 
 liquidity_engine = LiquidityEngine()

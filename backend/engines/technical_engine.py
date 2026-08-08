@@ -2,123 +2,134 @@ import pandas as pd
 import numpy as np
 import ta
 from typing import Dict, Any
-from ..core.logger import logger
+from core.logger import logger
 
 class TechnicalEngine:
-    """Institutional Grade Technical Analysis Engine with 40+ indicators."""
+    """Institutional Grade Technical Analysis Engine with 40+ indicators (V4)."""
 
     def calculate_metrics(self, history: pd.DataFrame) -> Dict[str, Any]:
-        """Calculates indicators and returns a normalized score."""
-        if history is None or history.empty or len(history) < 200:
-            return {"technical_score": 50}
+        """Calculates indicators and returns a normalized score safely."""
+        if history is None or history.empty:
+            return {"technical_score": None}
 
         try:
             close = history['Close']
             high = history['High']
             low = history['Low']
             volume = history['Volume']
+            data_len = len(history)
 
             metrics = {}
 
+            def safe_last(series, default=None):
+                if series is None or series.empty: return default
+                val = series.iloc[-1]
+                return float(val) if not np.isnan(val) else default
+
             # --- 1. Moving Averages (Trend) ---
             for p in [20, 50, 100, 200]:
-                metrics[f'ema{p}'] = ta.trend.ema_indicator(close, window=p).fillna(method='bfill').iloc[-1]
-                metrics[f'sma{p}'] = ta.trend.sma_indicator(close, window=p).fillna(method='bfill').iloc[-1]
+                if data_len >= p:
+                    metrics[f'ema{p}'] = safe_last(ta.trend.ema_indicator(close, window=p))
+                    metrics[f'sma{p}'] = safe_last(ta.trend.sma_indicator(close, window=p))
+                else:
+                    metrics[f'ema{p}'] = None
+                    metrics[f'sma{p}'] = None
 
             # --- 2. Oscillators (Momentum) ---
-            metrics['rsi'] = ta.momentum.rsi(close, window=14).fillna(50).iloc[-1]
-            macd = ta.trend.MACD(close)
-            metrics['macd'] = macd.macd().fillna(0).iloc[-1]
-            metrics['macd_signal'] = macd.macd_signal().fillna(0).iloc[-1]
-            metrics['macd_hist'] = macd.macd_diff().fillna(0).iloc[-1]
-            metrics['stoch_rsi'] = ta.momentum.stochrsi(close).fillna(0.5).iloc[-1]
-            metrics['williams_r'] = ta.momentum.williams_r(high, low, close).fillna(-50).iloc[-1]
-            metrics['cci'] = ta.trend.cci(high, low, close).fillna(0).iloc[-1]
+            if data_len >= 14:
+                metrics['rsi'] = safe_last(ta.momentum.rsi(close, window=14), 50.0)
+                macd = ta.trend.MACD(close)
+                metrics['macd'] = safe_last(macd.macd(), 0.0)
+                metrics['macd_signal'] = safe_last(macd.macd_signal(), 0.0)
+                metrics['macd_hist'] = safe_last(macd.macd_diff(), 0.0)
+                metrics['stoch_rsi'] = safe_last(ta.momentum.stochrsi(close), 0.5)
+                metrics['williams_r'] = safe_last(ta.momentum.williams_r(high, low, close), -50.0)
+                metrics['cci'] = safe_last(ta.trend.cci(high, low, close), 0.0)
+            else:
+                metrics.update({'rsi': None, 'macd': None, 'macd_signal': None, 'macd_hist': None, 'stoch_rsi': None, 'williams_r': None, 'cci': None})
 
             # --- 3. Trend Strength & Volatility ---
-            adx_indicator = ta.trend.ADXIndicator(high, low, close)
-            metrics['adx'] = adx_indicator.adx().fillna(20).iloc[-1]
-            metrics['di_plus'] = adx_indicator.adx_pos().fillna(20).iloc[-1]
-            metrics['di_minus'] = adx_indicator.adx_neg().fillna(20).iloc[-1]
+            if data_len >= 14:
+                adx_indicator = ta.trend.ADXIndicator(high, low, close)
+                metrics['adx'] = safe_last(adx_indicator.adx(), 20.0)
+                metrics['di_plus'] = safe_last(adx_indicator.adx_pos(), 20.0)
+                metrics['di_minus'] = safe_last(adx_indicator.adx_neg(), 20.0)
 
-            atr = ta.volatility.AverageTrueRange(high, low, close)
-            metrics['atr'] = atr.average_true_range().fillna(0).iloc[-1]
+                atr = ta.volatility.AverageTrueRange(high, low, close)
+                metrics['atr'] = safe_last(atr.average_true_range(), 0.0)
 
-            bb = ta.volatility.BollingerBands(close)
-            metrics['bb_high'] = bb.bollinger_hband().fillna(close).iloc[-1]
-            metrics['bb_low'] = bb.bollinger_lband().fillna(close).iloc[-1]
-            metrics['bb_mid'] = bb.bollinger_mavg().fillna(close).iloc[-1]
-
-            keltner = ta.volatility.KeltnerChannel(high, low, close)
-            metrics['keltner_high'] = keltner.keltner_channel_hband().fillna(close).iloc[-1]
-            metrics['keltner_low'] = keltner.keltner_channel_lband().fillna(close).iloc[-1]
-
-            donchian = ta.volatility.DonchianChannel(high, low, close)
-            metrics['donchian_high'] = donchian.donchian_channel_hband().fillna(close).iloc[-1]
-            metrics['donchian_low'] = donchian.donchian_channel_lband().fillna(close).iloc[-1]
+                bb = ta.volatility.BollingerBands(close)
+                metrics['bb_high'] = safe_last(bb.bollinger_hband())
+                metrics['bb_low'] = safe_last(bb.bollinger_lband())
+                metrics['bb_mid'] = safe_last(bb.bollinger_mavg())
+            else:
+                metrics.update({'adx': None, 'di_plus': None, 'di_minus': None, 'atr': None, 'bb_high': None, 'bb_low': None, 'bb_mid': None})
 
             # --- 4. Volume Analysis ---
-            metrics['obv'] = ta.volume.on_balance_volume(close, volume).fillna(0).iloc[-1]
-            metrics['mfi'] = ta.volume.money_flow_index(high, low, close, volume).fillna(50).iloc[-1]
-            metrics['cmf'] = ta.volume.chaikin_money_flow(high, low, close, volume).fillna(0).iloc[-1]
-            metrics['vpt'] = ta.volume.volume_price_trend(close, volume).fillna(0).iloc[-1]
+            if data_len >= 2:
+                metrics['obv'] = safe_last(ta.volume.on_balance_volume(close, volume), 0.0)
+                metrics['mfi'] = safe_last(ta.volume.money_flow_index(high, low, close, volume), 50.0)
+                metrics['cmf'] = safe_last(ta.volume.chaikin_money_flow(high, low, close, volume), 0.0)
+            else:
+                metrics.update({'obv': None, 'mfi': None, 'cmf': None})
 
-            # --- 5. Advanced Trend (Ichimoku & SuperTrend) ---
-            ichimoku = ta.trend.IchimokuIndicator(high, low)
-            metrics['ichimoku_a'] = ichimoku.ichimoku_a().fillna(close).iloc[-1]
-            metrics['ichimoku_b'] = ichimoku.ichimoku_b().iloc[-1] if not ichimoku.ichimoku_b().empty else close.iloc[-1]
+            # --- 5. Advanced Trend ---
+            if data_len >= 26:
+                ichimoku = ta.trend.IchimokuIndicator(high, low)
+                metrics['ichimoku_a'] = safe_last(ichimoku.ichimoku_a())
+                metrics['ichimoku_b'] = safe_last(ichimoku.ichimoku_b())
+            else:
+                metrics['ichimoku_a'] = None
+                metrics['ichimoku_b'] = None
 
-            # SuperTrend Real Implementation (ATR based)
-            # Proxying SuperTrend as it's not in standard 'ta' but essential for institutional feel
-            multiplier = 3
-            med_price = (high + low) / 2
-            atr_val = atr.average_true_range()
-            upper_band = med_price + (multiplier * atr_val)
-            lower_band = med_price - (multiplier * atr_val)
-            metrics['supertrend_lower'] = lower_band.iloc[-1]
-            metrics['supertrend_upper'] = upper_band.iloc[-1]
+            # --- 6. Pivots & Fibonacci ---
+            if data_len >= 2:
+                last_p = history.iloc[-1]
+                prev_p = history.iloc[-2]
+                pivot = (prev_p['High'] + prev_p['Low'] + prev_p['Close']) / 3
+                metrics['pivot'] = float(pivot)
+                metrics['r1'] = float((2 * pivot) - prev_p['Low'])
+                metrics['s1'] = float((2 * pivot) - prev_p['High'])
 
-            # --- 6. Pivots, Fibonacci & S/R ---
-            last_p = history.iloc[-1]
-            prev_p = history.iloc[-2] if len(history) > 1 else last_p
+                period_max = high.tail(min(data_len, 100)).max()
+                period_min = low.tail(min(data_len, 100)).min()
+                metrics['fib_618'] = float(period_max - (period_max - period_min) * 0.618)
+            else:
+                metrics.update({'pivot': None, 'r1': None, 's1': None, 'fib_618': None})
 
-            pivot = (prev_p['High'] + prev_p['Low'] + prev_p['Close']) / 3
-            metrics['pivot'] = pivot
-            metrics['r1'] = (2 * pivot) - prev_p['Low']
-            metrics['s1'] = (2 * pivot) - prev_p['High']
+            # --- Technical Score Calculation (Robust) ---
+            score_components = []
+            last_price = float(close.iloc[-1])
 
-            # Camarilla
-            rng = prev_p['High'] - prev_p['Low']
-            metrics['cam_h3'] = prev_p['Close'] + rng * 1.1 / 4
-            metrics['cam_l3'] = prev_p['Close'] - rng * 1.1 / 4
+            # Trend (40%)
+            if metrics.get('ema50') and last_price > metrics['ema50']: score_components.append(100)
+            elif metrics.get('ema50'): score_components.append(0)
 
-            # Fibonacci 61.8% (Golden Pocket)
-            period_max = high.tail(100).max()
-            period_min = low.tail(100).min()
-            metrics['fib_618'] = period_max - (period_max - period_min) * 0.618
+            if metrics.get('ema200') and last_price > metrics['ema200']: score_components.append(100)
+            elif metrics.get('ema200'): score_components.append(0)
 
-            # --- Technical Score Calculation ---
-            score = 50
-            last_price = close.iloc[-1]
+            # Momentum (30%)
+            if metrics.get('rsi'):
+                if 45 < metrics['rsi'] < 70: score_components.append(100)
+                elif metrics['rsi'] > 70: score_components.append(70) # Overbought
+                else: score_components.append(30)
 
-            # Trend Weight (40%)
-            if last_price > metrics['ema50']: score += 10
-            if last_price > metrics['ema200']: score += 10
-            if metrics['sma50'] > metrics['sma200']: score += 5 # Golden Cross
+            if metrics.get('macd_hist') is not None:
+                score_components.append(100 if metrics['macd_hist'] > 0 else 0)
 
-            # Momentum Weight (30%)
-            if 45 < metrics['rsi'] < 70: score += 10
-            if metrics['macd_hist'] > 0: score += 10
+            # Strength (30%)
+            if metrics.get('adx'):
+                score_components.append(100 if metrics['adx'] > 25 else 40)
 
-            # Volume & Strength (30%)
-            if metrics['adx'] > 25: score += 10
-            if metrics['cmf'] > 0: score += 5
+            if score_components:
+                metrics['technical_score'] = int(sum(score_components) / len(score_components))
+            else:
+                metrics['technical_score'] = None
 
-            metrics['technical_score'] = int(min(max(score, 0), 100))
             return metrics
 
         except Exception as e:
             logger.error(f"[TECHNICAL ENGINE ERROR] {str(e)}")
-            return {"technical_score": 50}
+            return {"technical_score": None}
 
 technical_engine = TechnicalEngine()
